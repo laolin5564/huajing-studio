@@ -1,7 +1,7 @@
 {
-  "name": "internal-image-generation-system",
+  "name": "huajing-studio",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "scripts": {
     "dev": "next dev",
     "dev:all": "concurrently \"next dev\" \"tsx watch workers/image-worker.ts\"",

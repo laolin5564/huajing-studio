@@ -685,7 +685,7 @@ export function getPublicSiteSettings(): {
 } {
   const registration = getRegistrationSettings();
   return {
-    siteTitle: getAppSetting("site_title") || "内部图片生成系统",
+    siteTitle: getAppSetting("site_title") || "画境工坊",
     siteSubtitle: getAppSetting("site_subtitle") || "image-2 workspace",
     registrationEnabled: registration.registrationEnabled || countUsers() === 0,
   };

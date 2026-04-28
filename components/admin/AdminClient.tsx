@@ -586,7 +586,7 @@ export function AdminClient() {
                     className="input"
                     value={siteTitle}
                     onChange={(event) => setSiteTitle(event.target.value)}
-                    placeholder="内部图片生成系统"
+                    placeholder="画境工坊"
                   />
                 </div>
                 <div className="field">
