@@ -5,9 +5,13 @@ import { ratioForOption } from "./image-options";
 
 const supportedImageMimeTypes = new Set(["image/png", "image/jpeg", "image/webp"]);
 
+export class ImageValidationError extends Error {
+  status = 400;
+}
+
 export function assertSupportedImage(type: string | null): void {
   if (!type || !supportedImageMimeTypes.has(type)) {
-    throw new Error("仅支持 PNG、JPG、WEBP 图片");
+    throw new ImageValidationError("仅支持 PNG、JPG、WEBP 图片");
   }
 }
 
@@ -35,7 +39,7 @@ export function assertSupportedImageBytes(bytes: Uint8Array, mimeType: string | 
     }
   }
 
-  throw new Error("图片内容与文件类型不匹配");
+  throw new ImageValidationError("图片内容与文件类型不匹配");
 }
 
 export function extensionForMime(type: string | null): string {
