@@ -2,6 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { DragEvent } from "react";
 import {
   Copy,
   Download,
@@ -68,6 +69,7 @@ export function WorkbenchClient() {
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [sourceImageId, setSourceImageId] = useState<string | null>(null);
   const [sourcePreview, setSourcePreview] = useState<string | null>(null);
+  const [isDraggingSourceImage, setIsDraggingSourceImage] = useState(false);
   const [conversations, setConversations] = useState<PublicConversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [activeConversation, setActiveConversation] = useState<PublicConversation | null>(null);
@@ -158,13 +160,72 @@ export function WorkbenchClient() {
     }
   }
 
+  function isSupportedImageFile(file: File): boolean {
+    return ["image/png", "image/jpeg", "image/webp"].includes(file.type);
+  }
+
   function handleFileChange(file: File | null): void {
+    if (file && !isSupportedImageFile(file)) {
+      setError("仅支持 PNG、JPG 或 WEBP 图片");
+      return;
+    }
+    setError("");
     setSourceFile(file);
     setSourceImageId(null);
     if (sourcePreview?.startsWith("blob:")) {
       URL.revokeObjectURL(sourcePreview);
     }
     setSourcePreview(file ? URL.createObjectURL(file) : null);
+  }
+
+  function getFirstImageFile(files: FileList | File[] | null): File | null {
+    if (!files) {
+      return null;
+    }
+    return Array.from(files).find((file) => file.type.startsWith("image/")) ?? null;
+  }
+
+  function handleSourceDrop(event: DragEvent<HTMLButtonElement>): void {
+    event.preventDefault();
+    setIsDraggingSourceImage(false);
+    const file = getFirstImageFile(event.dataTransfer.files);
+    if (!file) {
+      setError("请拖入 PNG、JPG 或 WEBP 图片");
+      return;
+    }
+    handleFileChange(file);
+  }
+
+  function handleSourceDragOver(event: DragEvent<HTMLButtonElement>): void {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setIsDraggingSourceImage(true);
+  }
+
+  async function handlePasteImage(): Promise<void> {
+    if (!navigator.clipboard?.read) {
+      setError("当前浏览器不支持读取剪贴板图片，请使用拖拽或选择文件上传");
+      return;
+    }
+
+    try {
+      const clipboardItems = await navigator.clipboard.read();
+      for (const item of clipboardItems) {
+        const imageType = item.types.find((type) => type.startsWith("image/"));
+        if (!imageType) {
+          continue;
+        }
+        const blob = await item.getType(imageType);
+        const extension = imageType.split("/")[1] || "png";
+        const file = new File([blob], `clipboard-image-${Date.now()}.${extension}`, { type: imageType });
+        handleFileChange(file);
+        setMessage("已从剪贴板读取图片");
+        return;
+      }
+      setError("剪贴板里没有图片");
+    } catch {
+      setError("读取剪贴板失败，请确认浏览器权限，或改用拖拽/选择文件上传");
+    }
   }
 
   useEffect(() => {
@@ -475,16 +536,30 @@ export function WorkbenchClient() {
             {mode !== "text_to_image" ? (
               <div className="field">
                 <span className="field-label">参考图</span>
-                <button className="upload-target" type="button" onClick={() => fileInputRef.current?.click()}>
+                <button
+                  className={clsx("upload-target", isDraggingSourceImage && "dragging")}
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  onDrop={handleSourceDrop}
+                  onDragOver={handleSourceDragOver}
+                  onDragEnter={handleSourceDragOver}
+                  onDragLeave={() => setIsDraggingSourceImage(false)}
+                >
                   {sourcePreview ? (
                     <img className="upload-preview" src={sourcePreview} alt="参考图预览" />
                   ) : (
                     <>
                       <Upload size={20} aria-hidden="true" />
-                      <span>{sourceImageId ? "已选择历史图片作为参考图" : "上传 PNG、JPG 或 WEBP"}</span>
+                      <span>{sourceImageId ? "已选择历史图片作为参考图" : "点击、拖拽或粘贴 PNG / JPG / WEBP"}</span>
                     </>
                   )}
                 </button>
+                <div className="upload-actions">
+                  <button className="button subtle" type="button" onClick={handlePasteImage}>
+                    粘贴剪贴板图片
+                  </button>
+                  <span>也可以直接把图片拖到上方区域</span>
+                </div>
                 <input
                   ref={fileInputRef}
                   className="input"
