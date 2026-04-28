@@ -49,11 +49,12 @@ if [[ -f /.dockerenv ]]; then
     -e UPDATE_CHECK_URL="${UPDATE_CHECK_URL:-}" \
     -e UPDATE_TAG="${UPDATE_TAG:-}" \
     -e BACKUP_DIR="${BACKUP_DIR:-}" \
+    -e HUAJING_SAFE_REPO_DIR="$REPO_DIR" \
     -v "$REPO_DIR:$REPO_DIR" \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -w "$REPO_DIR" \
     docker:28-cli \
-    sh -lc 'apk add --no-cache bash curl python3 >/dev/null && chmod +x scripts/update.sh && bash scripts/update.sh'
+    sh -lc 'apk add --no-cache bash curl python3 >/dev/null && git config --global --add safe.directory "$HUAJING_SAFE_REPO_DIR" && chmod +x scripts/update.sh && bash scripts/update.sh'
 fi
 
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then

@@ -51,6 +51,16 @@ detect_compose_bin() {
   fail "缺少 Docker Compose。请安装 docker compose 插件或 docker-compose。"
 }
 
+configure_git_safe_directory() {
+  local repo_dir="$1"
+
+  if git config --global --get-all safe.directory 2>/dev/null | grep -Fxq "$repo_dir"; then
+    return
+  fi
+
+  git config --global --add safe.directory "$repo_dir"
+}
+
 backup_runtime_files() {
   local backup_dir="$1"
   local stamp="$2"
@@ -79,6 +89,7 @@ cd "$REPO_DIR"
 
 [[ -d .git ]] || fail "当前目录不是 Git 部署。请使用 git clone 安装，或手动下载 release 包覆盖代码。"
 require_cmd git
+configure_git_safe_directory "$REPO_DIR"
 require_cmd docker
 detect_compose_bin
 

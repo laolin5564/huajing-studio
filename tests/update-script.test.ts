@@ -32,6 +32,28 @@ describe("update script backups", () => {
       rmSync(workspace, { force: true, recursive: true });
     }
   });
+
+  test("registers the deployed repo as a git safe directory", () => {
+    const workspace = mkdtempSync(path.join(tmpdir(), "huajing-safe-dir-test-"));
+    const homeDir = path.join(workspace, "home");
+    const repoDir = path.join(workspace, "repo");
+
+    try {
+      mkdirSync(homeDir);
+      mkdirSync(repoDir);
+
+      const safeDirectories = execFileSync("bash", [
+        "-lc",
+        `export HOME=${shellQuote(homeDir)} && source ${shellQuote(
+          updateScript,
+        )} && configure_git_safe_directory ${shellQuote(repoDir)} && git config --global --get-all safe.directory`,
+      ]).toString();
+
+      expect(safeDirectories.trim().split("\n")).toContain(repoDir);
+    } finally {
+      rmSync(workspace, { force: true, recursive: true });
+    }
+  });
 });
 
 function shellQuote(value: string): string {
