@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+.DS_Store
+*.log
+data/*.db-shm
+data/*.db-wal
+data/images/*
+内部图片生成系统-backups
+._*
+**/._*
