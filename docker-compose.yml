@@ -12,6 +12,8 @@ services:
       IMAGE_REQUEST_TIMEOUT_MS: "300000"
       WORKER_POLL_INTERVAL_MS: "3000"
       SESSION_COOKIE_SECURE: "false"
+      UPDATE_REPO: "laolin5564/huajing-studio"
+      UPDATE_CHECK_URL: "https://api.github.com/repos/laolin5564/huajing-studio/releases/latest"
     volumes:
       - ./data:/app/data
     restart: unless-stopped

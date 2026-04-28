@@ -23,6 +23,7 @@
 - SQLite 本地数据库，部署简单
 - 图片本地存储，不依赖额外对象存储
 - Docker Compose 一键部署
+- 管理员后台检查 GitHub Releases 更新，并提供安全更新命令
 
 ## 技术栈
 
@@ -63,6 +64,8 @@ DATABASE_URL=file:./data/app.db
 IMAGE_REQUEST_TIMEOUT_MS=300000
 WORKER_POLL_INTERVAL_MS=3000
 SESSION_COOKIE_SECURE=false
+UPDATE_REPO=laolin5564/huajing-studio
+UPDATE_CHECK_URL=https://api.github.com/repos/laolin5564/huajing-studio/releases/latest
 
 # 内置 OpenAI OAuth 模式（实验性）
 OPENAI_OAUTH_TOKEN_ENCRYPTION_KEY=
@@ -77,6 +80,8 @@ OPENAI_OAUTH_API_BASE_URL=https://api.openai.com/v1
 - `SUB2API_API_KEY`：图片接口密钥，不要提交到 Git。
 - `IMAGE_MODEL`：图片模型名，例如 `gpt-image-2`。
 - `SESSION_COOKIE_SECURE`：如果只用 HTTP 访问，设为 `false`；HTTPS 部署可设为 `true`。
+- `UPDATE_REPO`：在线更新检查使用的 GitHub 仓库，默认 `laolin5564/huajing-studio`。
+- `UPDATE_CHECK_URL`：在线更新检查地址，默认读取该仓库的 latest release。建议保持 HTTPS。
 - `OPENAI_OAUTH_TOKEN_ENCRYPTION_KEY`：内置 OpenAI OAuth 模式必填，用于 AES-256-GCM 加密保存 access token / refresh token。建议使用 32 字节以上随机字符串，或 `base64:` 前缀的 32 字节 key。
 - `OPENAI_OAUTH_REDIRECT_URI`：可选，固定 OAuth 回调地址；不填时按当前访问域名拼出 `/api/admin/openai-accounts/oauth/callback`。
 - `OPENAI_OAUTH_CLIENT_ID`：可选，默认使用参考 Codex CLI 的 OpenAI OAuth client_id；如果上游流程变更可覆盖。
@@ -129,6 +134,49 @@ http://服务器IP:3000
 - `data/app.db`：SQLite 数据库
 - `data/images/`：生成图片和上传素材
 
+## 在线更新与发布版本
+
+管理员后台有「系统更新」区域，会调用 GitHub Releases latest API 检查：
+
+- 当前版本：来自 `package.json` 的 `version`
+- 最新版本 / 发布时间 / Release Notes：来自 `UPDATE_CHECK_URL`
+- 是否有新版本：按 semver 比较 `latest release tag` 与当前版本
+
+第一版**不在 Web 容器内直接执行更新命令**，原因是 Docker Compose 部署时容器通常没有宿主机 Docker 权限，也不应让后台接受任意 shell 输入。后台会展示并复制官方更新命令：
+
+```bash
+bash scripts/update.sh
+```
+
+推荐已安装实例这样更新：
+
+```bash
+cd /path/to/huajing-studio
+bash scripts/update.sh
+```
+
+脚本行为：
+
+1. 从 GitHub Releases 获取最新 tag（也可用 `UPDATE_TAG=v0.1.1 bash scripts/update.sh` 指定版本）。
+2. 备份 `data/` 和 `.env*` 到 `backups/`。
+3. `git fetch --tags`，快进更新 `main`，如存在目标 tag 则 checkout 到该 tag。
+4. 执行 `docker compose up -d --build` 重新构建并启动。
+
+注意：脚本会拒绝在有未提交本地改动的工作区继续执行；`data/`、`.env*` 不会被提交或覆盖。
+
+### 发布新版本
+
+1. 修改 `package.json` 的 `version`，例如 `0.1.1`。
+2. 合并到 `main` 后打 tag：
+
+```bash
+git tag v0.1.1
+git push origin main v0.1.1
+```
+
+3. 在 GitHub Releases 页面基于该 tag 创建 Release，填写更新说明。建议发布前运行 `bun run lint` 和 `bun run build`。
+4. 已安装实例在后台点击「检查更新」即可看到新版本，并按脚本更新。
+
 ## 常用命令
 
 ```bash
@@ -139,6 +187,7 @@ bun run db:init   # 初始化数据库和内置模板
 bun run build     # 构建生产版本
 bun run start     # 启动生产 Web 服务
 bun run lint      # 代码检查
+bash scripts/update.sh  # 按 GitHub Release 更新 Docker Compose 部署
 ```
 
 ## 开源前安全提醒

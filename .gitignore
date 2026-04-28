@@ -12,3 +12,5 @@ data/app.db
 data/app.db-*
 data/images/*
 !data/images/.gitkeep
+backups/*
+!backups/.gitkeep

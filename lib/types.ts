@@ -304,3 +304,17 @@ export interface PublicAdminSettings {
   registrationDefaultGroupId: string;
   registrationDefaultQuota: number;
 }
+
+export interface SystemUpdateInfo {
+  currentVersion: string;
+  latestVersion: string | null;
+  latestTag: string | null;
+  publishedAt: string | null;
+  releaseNotesUrl: string | null;
+  releaseName: string | null;
+  updateAvailable: boolean;
+  updateCheckUrl: string;
+  updateRepo: string;
+  updateCommand: string;
+  checkedAt: string;
+}

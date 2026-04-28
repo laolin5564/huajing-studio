@@ -8,12 +8,21 @@ import {
   RefreshCw,
   Save,
   ShieldCheck,
+  Terminal,
   TrendingUp,
   UserPlus,
   Users,
 } from "lucide-react";
 import clsx from "clsx";
-import type { AdminStats, ImageProvider, PublicAdminSettings, PublicOpenAIOAuthAccount, PublicUser, PublicUserGroup } from "@/lib/types";
+import type {
+  AdminStats,
+  ImageProvider,
+  PublicAdminSettings,
+  PublicOpenAIOAuthAccount,
+  PublicUser,
+  PublicUserGroup,
+  SystemUpdateInfo,
+} from "@/lib/types";
 import { apiJson } from "@/components/client-api";
 
 interface StatsResponse {
@@ -38,6 +47,11 @@ interface UsersResponse {
 
 interface OpenAIOAuthAccountsResponse {
   accounts: PublicOpenAIOAuthAccount[];
+}
+
+interface SystemUpdateResponse {
+  update: SystemUpdateInfo;
+  error: string | null;
 }
 
 interface OpenAIOAuthStartResponse {
@@ -72,6 +86,10 @@ export function AdminClient() {
   const [groups, setGroups] = useState<PublicUserGroup[]>([]);
   const [users, setUsers] = useState<PublicUser[]>([]);
   const [openAIAccounts, setOpenAIAccounts] = useState<PublicOpenAIOAuthAccount[]>([]);
+  const [systemUpdate, setSystemUpdate] = useState<SystemUpdateInfo | null>(null);
+  const [updateError, setUpdateError] = useState("");
+  const [updateMessage, setUpdateMessage] = useState("");
+  const [updateChecking, setUpdateChecking] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupQuota, setNewGroupQuota] = useState(100);
   const [newUserEmail, setNewUserEmail] = useState("");
@@ -127,6 +145,32 @@ export function AdminClient() {
     setGroups(groupsPayload.groups);
     setUsers(usersPayload.users);
     setOpenAIAccounts(openAIPayload.accounts);
+  }
+
+  async function loadSystemUpdate(): Promise<void> {
+    setUpdateChecking(true);
+    setUpdateMessage("");
+    try {
+      const payload = await apiJson<SystemUpdateResponse>("/api/admin/system-update");
+      setSystemUpdate(payload.update);
+      setUpdateError(payload.error ?? "");
+    } catch (caught) {
+      setUpdateError(caught instanceof Error ? caught.message : "检查更新失败");
+    } finally {
+      setUpdateChecking(false);
+    }
+  }
+
+  async function copyUpdateCommand(): Promise<void> {
+    if (!systemUpdate) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(systemUpdate.updateCommand);
+      setUpdateMessage("更新命令已复制。请在服务器项目目录手动执行，执行前确认已备份 data/ 和 .env。");
+    } catch {
+      setUpdateMessage("复制失败，请手动复制下方命令。");
+    }
   }
 
   async function connectOpenAIAccount(): Promise<void> {
@@ -321,6 +365,7 @@ export function AdminClient() {
     loadStats().catch((caught: Error) => setError(caught.message));
     loadSettings().catch((caught: Error) => setError(caught.message));
     loadAccounts().catch((caught: Error) => setError(caught.message));
+    loadSystemUpdate().catch((caught: Error) => setUpdateError(caught.message));
     const timer = window.setInterval(() => {
       loadStats().catch((caught: Error) => setError(caught.message));
     }, 10_000);
@@ -349,6 +394,62 @@ export function AdminClient() {
             <StatCard label="本周生成次数" value={stats.week.totalTasks} icon={<TrendingUp size={18} />} />
             <StatCard label="成功 / 失败" value={`${stats.week.succeededTasks} / ${stats.week.failedTasks}`} icon={<BarChart3 size={18} />} />
             <StatCard label="本周预估成本" value={`$${stats.week.estimatedCost.toFixed(2)}`} icon={<DollarSign size={18} />} />
+          </section>
+
+          <section className="panel" style={{ marginTop: "1rem" }}>
+            <div className="panel-header">
+              <div>
+                <h2>系统更新</h2>
+                <p>从 GitHub Releases 检查新版本。第一版只生成官方更新命令，不在容器内执行任意 shell。</p>
+              </div>
+              <span className={clsx("badge", systemUpdate?.updateAvailable ? "warning" : "success")}>
+                {systemUpdate?.updateAvailable ? "发现新版本" : "当前已是最新"}
+              </span>
+            </div>
+            <div className="panel-body form-stack">
+              <div className="field-row">
+                <div className="field">
+                  <label>当前版本</label>
+                  <span className="badge">v{systemUpdate?.currentVersion ?? "检测中"}</span>
+                </div>
+                <div className="field">
+                  <label>最新版本</label>
+                  <span className="badge">{systemUpdate?.latestTag ?? "暂未获取"}</span>
+                </div>
+              </div>
+              <div className="field-row">
+                <div className="field">
+                  <label>发布时间</label>
+                  <span>{systemUpdate?.publishedAt ? new Date(systemUpdate.publishedAt).toLocaleString() : "暂未获取"}</span>
+                </div>
+                <div className="field">
+                  <label>更新源</label>
+                  <span>{systemUpdate?.updateRepo ?? "laolin5564/huajing-studio"}</span>
+                </div>
+              </div>
+              {systemUpdate?.releaseNotesUrl ? (
+                <a className="button subtle" href={systemUpdate.releaseNotesUrl} target="_blank" rel="noreferrer">
+                  查看 Release Notes
+                </a>
+              ) : null}
+              <div className="field">
+                <label>推荐更新命令</label>
+                <code className="command-box">{systemUpdate?.updateCommand ?? "bash scripts/update.sh"}</code>
+                <small>请 SSH 到服务器，在项目目录执行。脚本会备份 data/，保留 .env，并用 Docker Compose 重新构建。</small>
+              </div>
+              <div className="section-title-row">
+                <button className="button" type="button" onClick={loadSystemUpdate} disabled={updateChecking}>
+                  <RefreshCw size={16} aria-hidden="true" />
+                  {updateChecking ? "检查中" : "检查更新"}
+                </button>
+                <button className="button primary" type="button" onClick={copyUpdateCommand} disabled={!systemUpdate}>
+                  <Terminal size={16} aria-hidden="true" />
+                  复制更新命令
+                </button>
+              </div>
+              {updateError ? <div className="toast-line error">{updateError}</div> : null}
+              <div className="toast-line">{updateMessage}</div>
+            </div>
           </section>
 
           <section className="panel" style={{ marginTop: "1rem" }}>

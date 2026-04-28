@@ -262,6 +262,19 @@ button.nav-link {
   line-height: 1.6;
 }
 
+.command-box {
+  display: block;
+  overflow-x: auto;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background: #171717;
+  color: #f8f4ec;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  white-space: nowrap;
+}
+
 .input:focus,
 .textarea:focus,
 .select:focus {
