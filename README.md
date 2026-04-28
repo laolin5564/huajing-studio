@@ -23,7 +23,7 @@
 - SQLite 本地数据库，部署简单
 - 图片本地存储，不依赖额外对象存储
 - Docker Compose 一键部署
-- 管理员后台检查 GitHub Releases 更新，并提供安全更新命令
+- 管理员后台检查 GitHub Releases 更新，并支持受限 Web 一键更新
 
 ## 技术栈
 
@@ -66,6 +66,8 @@ WORKER_POLL_INTERVAL_MS=3000
 SESSION_COOKIE_SECURE=false
 UPDATE_REPO=laolin5564/huajing-studio
 UPDATE_CHECK_URL=https://api.github.com/repos/laolin5564/huajing-studio/releases/latest
+WEB_UPDATE_ENABLED=false
+WEB_UPDATE_REPO_DIR=/workspace/huajing-studio
 
 # 内置 OpenAI OAuth 模式（实验性）
 OPENAI_OAUTH_TOKEN_ENCRYPTION_KEY=
@@ -82,6 +84,8 @@ OPENAI_OAUTH_API_BASE_URL=https://api.openai.com/v1
 - `SESSION_COOKIE_SECURE`：如果只用 HTTP 访问，设为 `false`；HTTPS 部署可设为 `true`。
 - `UPDATE_REPO`：在线更新检查使用的 GitHub 仓库，默认 `laolin5564/huajing-studio`。
 - `UPDATE_CHECK_URL`：在线更新检查地址，默认读取该仓库的 latest release。建议保持 HTTPS。
+- `WEB_UPDATE_ENABLED`：是否允许管理员后台触发 Web 一键更新，默认 `false`。只有设为 `true` 才会执行固定脚本。
+- `WEB_UPDATE_REPO_DIR`：Docker 容器内执行更新时的宿主机 Git 项目挂载路径，默认 `/workspace/huajing-studio`。
 - `OPENAI_OAUTH_TOKEN_ENCRYPTION_KEY`：内置 OpenAI OAuth 模式必填，用于 AES-256-GCM 加密保存 access token / refresh token。建议使用 32 字节以上随机字符串，或 `base64:` 前缀的 32 字节 key。
 - `OPENAI_OAUTH_REDIRECT_URI`：可选，固定 OAuth 回调地址；不填时按当前访问域名拼出 `/api/admin/openai-accounts/oauth/callback`。
 - `OPENAI_OAUTH_CLIENT_ID`：可选，默认使用参考 Codex CLI 的 OpenAI OAuth client_id；如果上游流程变更可覆盖。
@@ -142,7 +146,45 @@ http://服务器IP:3000
 - 最新版本 / 发布时间 / Release Notes：来自 `UPDATE_CHECK_URL`
 - 是否有新版本：按 semver 比较 `latest release tag` 与当前版本
 
-第一版**不在 Web 容器内直接执行更新命令**，原因是 Docker Compose 部署时容器通常没有宿主机 Docker 权限，也不应让后台接受任意 shell 输入。后台会展示并复制官方更新命令：
+后台提供两种更新方式：
+
+### 1. Web 一键更新（可选，默认关闭）
+
+管理员点击「立即更新」后，服务端只会执行项目内固定脚本 `scripts/web-update.sh`，该脚本再调用 `scripts/update.sh`；接口不接受任何 command / shell 输入，并且有进程内锁和脚本级 `flock` 锁，同一时间只允许一个更新任务。后台会轮询展示状态、开始/结束时间、日志和错误。
+
+启用步骤：
+
+1. 确认当前部署目录是 Git clone 的项目目录，且 `scripts/update.sh` 可在宿主机手动执行成功。
+2. 修改 `.env` 或 Docker Compose 环境变量：
+
+```env
+WEB_UPDATE_ENABLED=true
+WEB_UPDATE_REPO_DIR=/workspace/huajing-studio
+```
+
+3. Docker Compose 部署时，需要让容器能更新宿主机项目并调用 Docker：
+
+```yaml
+services:
+  image-gen-system:
+    volumes:
+      - ./data:/app/data
+      - .:/workspace/huajing-studio
+      - /var/run/docker.sock:/var/run/docker.sock
+```
+
+4. 重启服务后，用管理员账号进入后台「系统更新」点击「立即更新」。
+
+风险与限制：
+
+- 挂载 `/var/run/docker.sock` 等同于给容器宿主机 Docker 管理权限，只建议在可信内网自用部署开启。
+- Web 一键更新仍会执行 `git fetch/pull/checkout` 和 `docker compose up -d --build`，更新过程中服务可能短暂重启。
+- 如果容器内没有 Git 项目目录、Docker socket、Docker CLI 或 Docker Compose，脚本会拒绝执行并在后台显示清晰错误。
+- `WEB_UPDATE_ENABLED` 默认关闭；未启用时后台只显示检查结果和手动命令。
+
+### 2. 手动更新命令
+
+如果不想给 Web 容器 Docker 权限，可以继续 SSH 到服务器执行官方更新命令：
 
 ```bash
 bash scripts/update.sh

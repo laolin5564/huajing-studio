@@ -22,6 +22,7 @@ import type {
   PublicUser,
   PublicUserGroup,
   SystemUpdateInfo,
+  WebUpdateTask,
 } from "@/lib/types";
 import { apiJson } from "@/components/client-api";
 
@@ -52,6 +53,10 @@ interface OpenAIOAuthAccountsResponse {
 interface SystemUpdateResponse {
   update: SystemUpdateInfo;
   error: string | null;
+}
+
+interface WebUpdateStatusResponse {
+  task: WebUpdateTask;
 }
 
 interface OpenAIOAuthStartResponse {
@@ -87,9 +92,11 @@ export function AdminClient() {
   const [users, setUsers] = useState<PublicUser[]>([]);
   const [openAIAccounts, setOpenAIAccounts] = useState<PublicOpenAIOAuthAccount[]>([]);
   const [systemUpdate, setSystemUpdate] = useState<SystemUpdateInfo | null>(null);
+  const [webUpdateTask, setWebUpdateTask] = useState<WebUpdateTask | null>(null);
   const [updateError, setUpdateError] = useState("");
   const [updateMessage, setUpdateMessage] = useState("");
   const [updateChecking, setUpdateChecking] = useState(false);
+  const [updateRunning, setUpdateRunning] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupQuota, setNewGroupQuota] = useState(100);
   const [newUserEmail, setNewUserEmail] = useState("");
@@ -158,6 +165,39 @@ export function AdminClient() {
       setUpdateError(caught instanceof Error ? caught.message : "检查更新失败");
     } finally {
       setUpdateChecking(false);
+    }
+  }
+
+  async function loadWebUpdateStatus(): Promise<WebUpdateTask> {
+    const payload = await apiJson<WebUpdateStatusResponse>("/api/admin/system-update/status");
+    setWebUpdateTask(payload.task);
+    return payload.task;
+  }
+
+  async function runWebUpdate(): Promise<void> {
+    if (!webUpdateTask?.enabled) {
+      setUpdateError(webUpdateTask?.enabledReason ?? "Web 一键更新未启用");
+      return;
+    }
+
+    const confirmed = window.confirm("确认立即执行 Web 一键更新？脚本会备份 data/ 和 .env*，然后拉取代码并执行 Docker Compose 重建。建议确认当前没有生成任务正在进行。");
+    if (!confirmed) {
+      return;
+    }
+
+    setUpdateRunning(true);
+    setUpdateError("");
+    setUpdateMessage("已触发更新任务，页面会自动刷新日志。");
+    try {
+      const payload = await apiJson<WebUpdateStatusResponse>("/api/admin/system-update/run", {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setWebUpdateTask(payload.task);
+    } catch (caught) {
+      setUpdateError(caught instanceof Error ? caught.message : "触发更新失败");
+    } finally {
+      setUpdateRunning(false);
     }
   }
 
@@ -366,11 +406,22 @@ export function AdminClient() {
     loadSettings().catch((caught: Error) => setError(caught.message));
     loadAccounts().catch((caught: Error) => setError(caught.message));
     loadSystemUpdate().catch((caught: Error) => setUpdateError(caught.message));
+    loadWebUpdateStatus().catch((caught: Error) => setUpdateError(caught.message));
     const timer = window.setInterval(() => {
       loadStats().catch((caught: Error) => setError(caught.message));
     }, 10_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (webUpdateTask?.status !== "running") {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      loadWebUpdateStatus().catch((caught: Error) => setUpdateError(caught.message));
+    }, 2_000);
+    return () => window.clearInterval(timer);
+  }, [webUpdateTask?.status]);
 
   return (
     <>
@@ -400,7 +451,7 @@ export function AdminClient() {
             <div className="panel-header">
               <div>
                 <h2>系统更新</h2>
-                <p>从 GitHub Releases 检查新版本。第一版只生成官方更新命令，不在容器内执行任意 shell。</p>
+                <p>从 GitHub Releases 检查新版本；启用后可在后台执行受限的一键更新脚本。</p>
               </div>
               <span className={clsx("badge", systemUpdate?.updateAvailable ? "warning" : "success")}>
                 {systemUpdate?.updateAvailable ? "发现新版本" : "当前已是最新"}
@@ -434,13 +485,36 @@ export function AdminClient() {
               ) : null}
               <div className="field">
                 <label>推荐更新命令</label>
-                <code className="command-box">{systemUpdate?.updateCommand ?? "bash scripts/update.sh"}</code>
-                <small>请 SSH 到服务器，在项目目录执行。脚本会备份 data/，保留 .env，并用 Docker Compose 重新构建。</small>
+                <code className="command-box">{systemUpdate?.updateCommand ?? "WEB_UPDATE_ENABLED=true bash scripts/web-update.sh"}</code>
+                <small>Web 按钮只会调用项目内固定 scripts/web-update.sh；默认关闭，需设置 WEB_UPDATE_ENABLED=true 并准备 Docker Compose 权限。</small>
+              </div>
+              <div className="field-row">
+                <div className="field">
+                  <label>Web 一键更新</label>
+                  <span className={clsx("badge", webUpdateTask?.enabled ? "success" : "warning")}>{webUpdateTask?.enabled ? "已启用" : "未启用"}</span>
+                  {webUpdateTask?.enabledReason ? <small>{webUpdateTask.enabledReason}</small> : null}
+                </div>
+                <div className="field">
+                  <label>任务状态</label>
+                  <span className={clsx("badge", webUpdateTask?.status === "failed" ? "danger" : webUpdateTask?.status === "running" ? "warning" : "success")}>{webUpdateTask?.status ?? "idle"}</span>
+                  <small>
+                    {webUpdateTask?.startedAt ? `开始：${new Date(webUpdateTask.startedAt).toLocaleString()}` : "尚未执行"}
+                    {webUpdateTask?.finishedAt ? `；结束：${new Date(webUpdateTask.finishedAt).toLocaleString()}` : ""}
+                  </small>
+                </div>
               </div>
               <div className="section-title-row">
                 <button className="button" type="button" onClick={loadSystemUpdate} disabled={updateChecking}>
                   <RefreshCw size={16} aria-hidden="true" />
                   {updateChecking ? "检查中" : "检查更新"}
+                </button>
+                <button className="button" type="button" onClick={() => loadWebUpdateStatus().catch((caught: Error) => setUpdateError(caught.message))}>
+                  <RefreshCw size={16} aria-hidden="true" />
+                  刷新更新状态
+                </button>
+                <button className="button primary" type="button" onClick={runWebUpdate} disabled={!webUpdateTask?.enabled || webUpdateTask.status === "running" || updateRunning}>
+                  <ShieldCheck size={16} aria-hidden="true" />
+                  {webUpdateTask?.status === "running" || updateRunning ? "更新中" : "立即更新"}
                 </button>
                 <button className="button primary" type="button" onClick={copyUpdateCommand} disabled={!systemUpdate}>
                   <Terminal size={16} aria-hidden="true" />
@@ -449,6 +523,11 @@ export function AdminClient() {
               </div>
               {updateError ? <div className="toast-line error">{updateError}</div> : null}
               <div className="toast-line">{updateMessage}</div>
+              {webUpdateTask?.error ? <div className="toast-line error">{webUpdateTask.error}</div> : null}
+              <div className="field">
+                <label>更新日志</label>
+                <pre className="command-box update-log">{webUpdateTask?.logs.length ? webUpdateTask.logs.join("\n") : "暂无更新日志"}</pre>
+              </div>
             </div>
           </section>
 

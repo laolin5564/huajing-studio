@@ -24,6 +24,14 @@ function readNumberEnv(name: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function readBooleanEnv(name: string, fallback = false): boolean {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (!raw) {
+    return fallback;
+  }
+  return ["1", "true", "yes", "on"].includes(raw);
+}
+
 export const appConfig = {
   databasePath: resolvePathFromEnv(process.env.DATABASE_URL, "data/app.db"),
   imageStorageDir: resolvePathFromEnv(process.env.IMAGE_STORAGE_DIR, "data/images"),
@@ -39,6 +47,7 @@ export const appConfig = {
   openaiOAuthTokenEncryptionKey: process.env.OPENAI_OAUTH_TOKEN_ENCRYPTION_KEY || "",
   updateCheckUrl: process.env.UPDATE_CHECK_URL || defaultUpdateCheckUrl,
   updateRepo: process.env.UPDATE_REPO || defaultUpdateRepo,
+  webUpdateEnabled: readBooleanEnv("WEB_UPDATE_ENABLED"),
 };
 
 export const IMAGE_USER_AGENT =

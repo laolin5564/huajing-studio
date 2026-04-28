@@ -14,6 +14,12 @@ services:
       SESSION_COOKIE_SECURE: "false"
       UPDATE_REPO: "laolin5564/huajing-studio"
       UPDATE_CHECK_URL: "https://api.github.com/repos/laolin5564/huajing-studio/releases/latest"
+      # Web 一键更新默认关闭。确认已按 README 挂载 docker socket 和 Git 项目目录后再改为 true。
+      WEB_UPDATE_ENABLED: "${WEB_UPDATE_ENABLED:-false}"
+      WEB_UPDATE_REPO_DIR: "${WEB_UPDATE_REPO_DIR:-/workspace/huajing-studio}"
     volumes:
       - ./data:/app/data
+      # 启用 Web 一键更新时需要取消下面两行注释，让容器能更新宿主机 Git 项目并调用 Docker Compose。
+      # - .:/workspace/huajing-studio
+      # - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped

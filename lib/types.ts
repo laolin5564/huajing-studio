@@ -318,3 +318,17 @@ export interface SystemUpdateInfo {
   updateCommand: string;
   checkedAt: string;
 }
+
+export type WebUpdateStatus = "idle" | "running" | "succeeded" | "failed";
+
+export interface WebUpdateTask {
+  status: WebUpdateStatus;
+  enabled: boolean;
+  enabledReason: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  logs: string[];
+  error: string | null;
+  exitCode: number | null;
+  scriptPath: string;
+}

@@ -275,6 +275,11 @@ button.nav-link {
   white-space: nowrap;
 }
 
+.update-log {
+  max-height: 18rem;
+  white-space: pre-wrap;
+}
+
 .input:focus,
 .textarea:focus,
 .select:focus {

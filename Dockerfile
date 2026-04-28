@@ -17,6 +17,9 @@ FROM node:25-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl git python3 util-linux docker.io docker-compose \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/node_modules ./node_modules
@@ -24,6 +27,7 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/workers ./workers
 COPY --from=builder /app/lib ./lib
 COPY --from=builder /app/public ./public
+COPY --from=builder /app/scripts ./scripts
 
 RUN mkdir -p /app/data/images
 

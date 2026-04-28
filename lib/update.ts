@@ -27,7 +27,7 @@ function ensureString(value: unknown): string | null {
 }
 
 function buildUpdateCommand(): string {
-  return "bash scripts/update.sh";
+  return "WEB_UPDATE_ENABLED=true bash scripts/web-update.sh";
 }
 
 function validateUpdateCheckUrl(rawUrl: string): URL {
