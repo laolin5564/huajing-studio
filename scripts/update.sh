@@ -51,6 +51,30 @@ detect_compose_bin() {
   fail "缺少 Docker Compose。请安装 docker compose 插件或 docker-compose。"
 }
 
+backup_runtime_files() {
+  local backup_dir="$1"
+  local stamp="$2"
+  local env_files=()
+  local candidate
+
+  mkdir -p "$backup_dir"
+
+  if [[ -d data ]]; then
+    tar -czf "$backup_dir/data-${stamp}.tar.gz" data
+  fi
+
+  for candidate in .env .env.local .env.production .env.production.local; do
+    if [[ -f "$candidate" ]]; then
+      env_files+=("$candidate")
+    fi
+  done
+
+  if (( ${#env_files[@]} > 0 )); then
+    tar -czf "$backup_dir/env-${stamp}.tar.gz" "${env_files[@]}"
+  fi
+}
+
+main() {
 cd "$REPO_DIR"
 
 [[ -d .git ]] || fail "当前目录不是 Git 部署。请使用 git clone 安装，或手动下载 release 包覆盖代码。"
@@ -68,19 +92,8 @@ validate_tag "$UPDATE_TAG"
 
 log "目标版本：$UPDATE_TAG"
 log "备份 data/ 和 .env* 到 $BACKUP_DIR"
-mkdir -p "$BACKUP_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
-
-if [[ -d data ]]; then
-  tar -czf "$BACKUP_DIR/data-${STAMP}.tar.gz" data
-fi
-
-shopt -s nullglob
-ENV_FILES=(.env .env.local .env.production .env.production.local)
-if (( ${#ENV_FILES[@]} > 0 )); then
-  tar -czf "$BACKUP_DIR/env-${STAMP}.tar.gz" "${ENV_FILES[@]}"
-fi
-shopt -u nullglob
+backup_runtime_files "$BACKUP_DIR" "$STAMP"
 
 log "拉取 GitHub tag..."
 git fetch --tags --prune origin
@@ -104,3 +117,8 @@ $COMPOSE_BIN up -d --build
 
 log "更新完成。备份位置：$BACKUP_DIR"
 log "如需回到原分支，可执行：git checkout $CURRENT_BRANCH"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
