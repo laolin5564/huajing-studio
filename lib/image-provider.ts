@@ -1,4 +1,6 @@
+import { lookup } from "node:dns/promises";
 import { readFile } from "node:fs/promises";
+import { isIP } from "node:net";
 import path from "node:path";
 import { appConfig, IMAGE_USER_AGENT } from "./config";
 import {
@@ -17,7 +19,7 @@ import {
   tokenExpiresAt,
 } from "./openai-oauth";
 import type { GenerationTaskRow, ImageProvider, OpenAIOAuthAccountRow } from "./types";
-import { mimeFromFileName, resolveStoragePath } from "./storage";
+import { assertSupportedImage, assertSupportedImageBytes, mimeFromFileName, resolveStoragePath } from "./storage";
 
 interface ImageApiItem {
   b64_json?: string;
@@ -27,6 +29,8 @@ interface ImageApiItem {
 interface ImageApiResponse {
   data?: ImageApiItem[];
 }
+
+const maxDownloadedImageBytes = 25 * 1024 * 1024;
 
 interface ImageRequestSettings {
   provider: ImageProvider;
@@ -265,8 +269,12 @@ function normalizeImageItems(payload: unknown): ImageApiItem[] {
 
 async function materializeImageItem(item: ImageApiItem, signal?: AbortSignal): Promise<MaterializedImage> {
   if (item.b64_json) {
+    const bytes = new Uint8Array(Buffer.from(item.b64_json, "base64"));
+    if (bytes.byteLength > maxDownloadedImageBytes) {
+      throw new Error("模型返回图片过大");
+    }
     return {
-      bytes: new Uint8Array(Buffer.from(item.b64_json, "base64")),
+      bytes,
       mimeType: "image/png",
     };
   }
@@ -279,6 +287,7 @@ async function materializeImageItem(item: ImageApiItem, signal?: AbortSignal): P
 }
 
 async function downloadImage(url: string, signal?: AbortSignal): Promise<MaterializedImage> {
+  await assertSafeImageDownloadUrl(url);
   const response = await fetch(url, {
     headers: {
       "User-Agent": IMAGE_USER_AGENT,
@@ -290,9 +299,86 @@ async function downloadImage(url: string, signal?: AbortSignal): Promise<Materia
     throw new Error(`图片下载失败: ${response.status}`);
   }
 
-  const contentType = response.headers.get("content-type");
-  const bytes = new Uint8Array(await response.arrayBuffer());
+  const contentType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ?? null;
+  assertSupportedImage(contentType);
+
+  const contentLength = Number(response.headers.get("content-length") ?? 0);
+  if (Number.isFinite(contentLength) && contentLength > maxDownloadedImageBytes) {
+    throw new Error("图片下载失败：文件过大");
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error("图片下载失败：响应体为空");
+  }
+
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    totalBytes += value.byteLength;
+    if (totalBytes > maxDownloadedImageBytes) {
+      throw new Error("图片下载失败：文件过大");
+    }
+    chunks.push(value);
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  assertSupportedImageBytes(bytes, contentType);
   return { bytes, mimeType: contentType };
+}
+
+async function assertSafeImageDownloadUrl(rawUrl: string): Promise<void> {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error("图片下载失败：URL 不合法");
+  }
+
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("图片下载失败：仅允许 HTTP/HTTPS URL");
+  }
+
+  const addresses = isIP(parsed.hostname)
+    ? [{ address: parsed.hostname }]
+    : await lookup(parsed.hostname, { all: true, verbatim: true });
+  if (addresses.some((item) => isPrivateAddress(item.address))) {
+    throw new Error("图片下载失败：不允许访问内网地址");
+  }
+}
+
+function isPrivateAddress(address: string): boolean {
+  if (address === "::1" || address.toLowerCase().startsWith("fe80:")) {
+    return true;
+  }
+
+  if (address.startsWith("fc") || address.startsWith("fd")) {
+    return true;
+  }
+
+  const parts = address.split(".").map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part))) {
+    return false;
+  }
+
+  const [a, b] = parts;
+  return (
+    a === 10 ||
+    a === 127 ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    a === 0
+  );
 }
 
 function requestSignal(signal?: AbortSignal): AbortSignal {

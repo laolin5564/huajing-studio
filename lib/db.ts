@@ -1147,45 +1147,57 @@ export function createGenerationTask(input: CreateTaskInput): GenerationTaskRow 
   const id = createId("task");
   const createdAt = nowIso();
   const costEstimate = input.quantity * appConfig.costPerImage;
-  const existingConversation = input.conversationId ? getConversation(input.conversationId) : null;
-  const conversation = existingConversation ?? createConversation(titleFromPrompt(input.prompt), input.userId);
-  const conversationId = conversation.id;
 
-  database
-    .prepare(
-      `
-      INSERT INTO generation_tasks (
-        id, user_id, conversation_id, mode, status, prompt, negative_prompt, size, quantity, template_id,
-        source_image_id, reference_strength, style_strength, cost_estimate,
-        error_message, created_at, started_at, completed_at
-      ) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL)
-    `,
-    )
-    .run(
-      id,
-      input.userId,
+  try {
+    database.exec("BEGIN IMMEDIATE");
+    const existingConversation = input.conversationId ? getConversation(input.conversationId) : null;
+    const conversation = existingConversation ?? createConversation(titleFromPrompt(input.prompt), input.userId);
+    const conversationId = conversation.id;
+
+    database
+      .prepare(
+        `
+        INSERT INTO generation_tasks (
+          id, user_id, conversation_id, mode, status, prompt, negative_prompt, size, quantity, template_id,
+          source_image_id, reference_strength, style_strength, cost_estimate,
+          error_message, created_at, started_at, completed_at
+        ) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL)
+      `,
+      )
+      .run(
+        id,
+        input.userId,
+        conversationId,
+        input.mode,
+        input.prompt,
+        input.negativePrompt,
+        input.size,
+        input.quantity,
+        input.templateId,
+        input.sourceImageId,
+        input.referenceStrength,
+        input.styleStrength,
+        costEstimate,
+        createdAt,
+      );
+
+    createConversationMessage({
       conversationId,
-      input.mode,
-      input.prompt,
-      input.negativePrompt,
-      input.size,
-      input.quantity,
-      input.templateId,
-      input.sourceImageId,
-      input.referenceStrength,
-      input.styleStrength,
-      costEstimate,
-      createdAt,
-    );
-
-  createConversationMessage({
-    conversationId,
-    role: "user",
-    content: input.prompt,
-    taskId: id,
-    imageId: input.sourceImageId,
-  });
-  touchConversation(conversationId);
+      role: "user",
+      content: input.prompt,
+      taskId: id,
+      imageId: input.sourceImageId,
+    });
+    touchConversation(conversationId);
+    database.exec("COMMIT");
+  } catch (error) {
+    try {
+      database.exec("ROLLBACK");
+    } catch {
+      // Ignore rollback failures when SQLite has already closed the transaction.
+    }
+    throw error;
+  }
 
   const task = getGenerationTask(id);
   if (!task) {
@@ -1267,11 +1279,15 @@ export function markTaskSucceeded(taskId: string, imageCount: number): void {
     return;
   }
 
-  getDb()
+  const result = getDb()
     .prepare(
-      "UPDATE generation_tasks SET status = 'succeeded', completed_at = ?, error_message = NULL WHERE id = ?",
+      "UPDATE generation_tasks SET status = 'succeeded', completed_at = ?, error_message = NULL WHERE id = ? AND status = 'processing'",
     )
     .run(completedAt, taskId);
+
+  if (result.changes !== 1) {
+    return;
+  }
 
   if (task.conversation_id) {
     const images = getTaskImages(taskId);
@@ -1296,11 +1312,15 @@ export function markTaskFailed(taskId: string, message: string): void {
     return;
   }
 
-  getDb()
+  const result = getDb()
     .prepare(
-      "UPDATE generation_tasks SET status = 'failed', completed_at = ?, error_message = ? WHERE id = ?",
+      "UPDATE generation_tasks SET status = 'failed', completed_at = ?, error_message = ? WHERE id = ? AND status = 'processing'",
     )
     .run(nowIso(), message.slice(0, 1000), taskId);
+
+  if (result.changes !== 1) {
+    return;
+  }
 
   if (task.conversation_id) {
     createConversationMessage({

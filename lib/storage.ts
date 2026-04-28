@@ -11,6 +11,33 @@ export function assertSupportedImage(type: string | null): void {
   }
 }
 
+export function assertSupportedImageBytes(bytes: Uint8Array, mimeType: string | null): void {
+  assertSupportedImage(mimeType);
+
+  if (mimeType === "image/png" && bytes.length >= 8) {
+    const pngSignature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    if (pngSignature.every((byte, index) => bytes[index] === byte)) {
+      return;
+    }
+  }
+
+  if (mimeType === "image/jpeg" && bytes.length >= 3) {
+    if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+      return;
+    }
+  }
+
+  if (mimeType === "image/webp" && bytes.length >= 12) {
+    const riff = String.fromCharCode(...bytes.slice(0, 4));
+    const webp = String.fromCharCode(...bytes.slice(8, 12));
+    if (riff === "RIFF" && webp === "WEBP") {
+      return;
+    }
+  }
+
+  throw new Error("图片内容与文件类型不匹配");
+}
+
 export function extensionForMime(type: string | null): string {
   if (type === "image/jpeg") {
     return "jpg";

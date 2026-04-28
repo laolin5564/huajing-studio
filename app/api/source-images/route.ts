@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createId, createSourceImage, imagePublicUrl } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { handleRouteError, jsonError } from "@/lib/http";
-import { assertSupportedImage, saveSourceImageFile } from "@/lib/storage";
+import { assertSupportedImageBytes, saveSourceImageFile } from "@/lib/storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,8 +23,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return jsonError("图片不能超过 20MB", 400);
     }
 
-    assertSupportedImage(value.type);
     const bytes = new Uint8Array(await value.arrayBuffer());
+    assertSupportedImageBytes(bytes, value.type);
     const sourceId = createId("src");
     const filePath = await saveSourceImageFile({
       sourceId,
