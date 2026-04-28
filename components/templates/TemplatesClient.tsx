@@ -36,6 +36,7 @@ export function TemplatesClient() {
   const [form, setForm] = useState(emptyForm);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const visibleTemplates = useMemo(
@@ -47,8 +48,16 @@ export function TemplatesClient() {
   );
 
   async function loadTemplates(): Promise<void> {
-    const payload = await apiJson<TemplateListResponse>("/api/templates");
-    setTemplates(payload.templates);
+    setLoading(true);
+    setError("");
+    try {
+      const payload = await apiJson<TemplateListResponse>("/api/templates");
+      setTemplates(payload.templates);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "模板加载失败");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -146,7 +155,14 @@ export function TemplatesClient() {
             </div>
 
             <div className="template-list">
-              {visibleTemplates.map((template) => (
+              {loading ? (
+                <div className="empty-state" aria-busy="true">
+                  <div>
+                    <strong>正在加载模板</strong>
+                    <span>请稍候，正在读取模板库。</span>
+                  </div>
+                </div>
+              ) : visibleTemplates.length > 0 ? visibleTemplates.map((template) => (
                 <article className="template-item" key={template.id}>
                   <div className="queue-item-top">
                     <span className="badge">
@@ -169,7 +185,14 @@ export function TemplatesClient() {
                   </div>
                   <small>更新于 {formatDateTime(template.updatedAt)}</small>
                 </article>
-              ))}
+              )) : (
+                <div className="empty-state">
+                  <div>
+                    <strong>{activeCategory === "all" ? "暂无模板" : `暂无${categoryLabels[activeCategory]}模板`}</strong>
+                    <span>{activeCategory === "all" ? "点击右上角新建模板。" : "可以切换分类或新建一个模板。"}</span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -284,7 +307,7 @@ export function TemplatesClient() {
               <Save size={16} aria-hidden="true" />
               {saving ? "保存中" : "保存模板"}
             </button>
-            <div className={clsx("toast-line", error && "error")}>{error || message}</div>
+            <div className={clsx("toast-line", error && "error")} role="status" aria-live="polite">{error || message}</div>
           </form>
         </aside>
       </section>

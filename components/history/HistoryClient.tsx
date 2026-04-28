@@ -7,7 +7,7 @@ import { Copy, Download, Pencil, RefreshCw, Save, Search } from "lucide-react";
 import clsx from "clsx";
 import { sizeFromDimensions } from "@/lib/image-options";
 import type { GenerationMode, PublicImage, PublicTemplate } from "@/lib/types";
-import { apiJson, categoryLabels, formatDateTime, modeLabels } from "@/components/client-api";
+import { apiJson, categoryLabels, copyTextToClipboard, formatDateTime, modeLabels } from "@/components/client-api";
 
 interface ImageListResponse {
   images: PublicImage[];
@@ -69,9 +69,15 @@ export function HistoryClient() {
   }, [loadImages]);
 
   async function copyPrompt(value: string): Promise<void> {
-    await navigator.clipboard.writeText(value);
-    setMessage("prompt 已复制。");
+    try {
+      await copyTextToClipboard(value);
+      setMessage("prompt 已复制。");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "复制失败，请手动复制。");
+    }
   }
+
+  const hasFilters = Boolean(keyword.trim() || mode || templateId);
 
   async function regenerate(image: PublicImage): Promise<void> {
     try {
@@ -170,9 +176,16 @@ export function HistoryClient() {
         </button>
       </section>
 
-      <div className={clsx("toast-line", error && "error")}>{error || message}</div>
+      <div className={clsx("toast-line", error && "error")} role="status" aria-live="polite">{error || message}</div>
 
-      {images.length > 0 ? (
+      {loading ? (
+        <div className="empty-state" aria-busy="true">
+          <div>
+            <strong>正在加载历史图片</strong>
+            <span>请稍候，正在读取最新生成记录。</span>
+          </div>
+        </div>
+      ) : images.length > 0 ? (
         <section className="image-grid">
           {images.map((image) => (
             <article className="image-card" key={image.id}>
@@ -213,8 +226,8 @@ export function HistoryClient() {
       ) : (
         <div className="empty-state">
           <div>
-            <strong>暂无历史图片</strong>
-            <span>生成成功后的图片会自动进入这里。</span>
+            <strong>{hasFilters ? "没有匹配的历史图片" : "暂无历史图片"}</strong>
+            <span>{hasFilters ? "可以换个关键词、模式或模板再试。" : "生成成功后的图片会自动进入这里。"}</span>
           </div>
         </div>
       )}

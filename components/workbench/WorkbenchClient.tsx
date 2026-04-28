@@ -27,7 +27,7 @@ import type {
   PublicTask,
   PublicTemplate,
 } from "@/lib/types";
-import { apiJson, formatDateTime, modeLabels, statusLabels } from "@/components/client-api";
+import { apiJson, copyTextToClipboard, formatDateTime, modeLabels, statusLabels } from "@/components/client-api";
 
 const modes: GenerationMode[] = ["text_to_image", "image_to_image", "edit_image"];
 const quantityOptions = [1, 2, 4] as const;
@@ -167,6 +167,14 @@ export function WorkbenchClient() {
     setSourcePreview(file ? URL.createObjectURL(file) : null);
   }
 
+  useEffect(() => {
+    return () => {
+      if (sourcePreview?.startsWith("blob:")) {
+        URL.revokeObjectURL(sourcePreview);
+      }
+    };
+  }, [sourcePreview]);
+
   async function uploadSourceIfNeeded(): Promise<string | null> {
     if (mode === "text_to_image") {
       return null;
@@ -190,6 +198,11 @@ export function WorkbenchClient() {
   }
 
   async function submitTask(): Promise<void> {
+    if (!prompt.trim()) {
+      setError("请输入 prompt 后再生成");
+      return;
+    }
+
     setBusy(true);
     setMessage("");
     setError("");
@@ -224,8 +237,12 @@ export function WorkbenchClient() {
   }
 
   async function copyPrompt(value: string): Promise<void> {
-    await navigator.clipboard.writeText(value);
-    setMessage("prompt 已复制。");
+    try {
+      await copyTextToClipboard(value);
+      setMessage("prompt 已复制。");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "复制失败，请手动复制。");
+    }
   }
 
   async function regenerateFromImage(image: PublicImage): Promise<void> {
@@ -413,6 +430,8 @@ export function WorkbenchClient() {
                 <button
                   key={item}
                   type="button"
+                  role="tab"
+                  aria-selected={mode === item}
                   className={clsx(mode === item && "active")}
                   onClick={() => switchMode(item)}
                 >
@@ -922,6 +941,17 @@ function ImageCard({
 }
 
 function ImageLightbox({ image, onClose }: { image: PublicImage; onClose: () => void }) {
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   return (
     <div className="image-lightbox-backdrop" role="dialog" aria-modal="true" onClick={onClose}>
       <div className="image-lightbox" onClick={(event) => event.stopPropagation()}>

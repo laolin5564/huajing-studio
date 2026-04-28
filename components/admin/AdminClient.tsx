@@ -24,7 +24,7 @@ import type {
   SystemUpdateInfo,
   WebUpdateTask,
 } from "@/lib/types";
-import { apiJson } from "@/components/client-api";
+import { apiJson, copyTextToClipboard } from "@/components/client-api";
 
 interface StatsResponse {
   stats: AdminStats;
@@ -95,6 +95,7 @@ export function AdminClient() {
   const [webUpdateTask, setWebUpdateTask] = useState<WebUpdateTask | null>(null);
   const [updateError, setUpdateError] = useState("");
   const [updateMessage, setUpdateMessage] = useState("");
+  const [pendingOpenAIAuthUrl, setPendingOpenAIAuthUrl] = useState("");
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updateRunning, setUpdateRunning] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
@@ -206,25 +207,41 @@ export function AdminClient() {
       return;
     }
     try {
-      await navigator.clipboard.writeText(systemUpdate.updateCommand);
+      await copyTextToClipboard(systemUpdate.updateCommand);
       setUpdateMessage("更新命令已复制。请在服务器项目目录手动执行，执行前确认已备份 data/ 和 .env。");
-    } catch {
-      setUpdateMessage("复制失败，请手动复制下方命令。");
+    } catch (caught) {
+      setUpdateMessage(caught instanceof Error ? caught.message : "复制失败，请手动复制下方命令。");
     }
   }
 
   async function connectOpenAIAccount(): Promise<void> {
+    const authWindow = window.open("about:blank", "_blank");
+    if (authWindow) {
+      authWindow.opener = null;
+      authWindow.document.title = "正在打开 OpenAI 授权";
+      authWindow.document.body.textContent = "正在打开 OpenAI 授权页...";
+      authWindow.document.body.style.fontFamily = "system-ui, sans-serif";
+      authWindow.document.body.style.padding = "24px";
+    }
+
     setOpenAISaving(true);
     setOpenAIMessage("");
+    setPendingOpenAIAuthUrl("");
     setError("");
     try {
       const payload = await apiJson<OpenAIOAuthStartResponse>("/api/admin/openai-accounts", {
         method: "POST",
         body: JSON.stringify({}),
       });
-      window.open(payload.authUrl, "_blank", "noopener,noreferrer");
-      setOpenAIMessage("已打开 OpenAI 授权页。授权完成后回到这里刷新账号列表。");
+      if (authWindow) {
+        authWindow.location.href = payload.authUrl;
+        setOpenAIMessage("已打开 OpenAI 授权页。授权完成后回到这里刷新账号列表。");
+      } else {
+        setPendingOpenAIAuthUrl(payload.authUrl);
+        setOpenAIMessage("浏览器拦截了授权弹窗，请点击下方备用授权链接打开 OpenAI。");
+      }
     } catch (caught) {
+      authWindow?.close();
       setError(caught instanceof Error ? caught.message : "OpenAI 授权发起失败");
     } finally {
       setOpenAISaving(false);
@@ -423,6 +440,12 @@ export function AdminClient() {
     return () => window.clearInterval(timer);
   }, [webUpdateTask?.status]);
 
+  const displayStats: AdminStats = stats ?? {
+    today: { totalTasks: 0, succeededTasks: 0, failedTasks: 0, totalImages: 0, estimatedCost: 0 },
+    week: { totalTasks: 0, succeededTasks: 0, failedTasks: 0, totalImages: 0, estimatedCost: 0 },
+    popularTemplates: [],
+  };
+
   return (
     <>
       <section className="page-heading">
@@ -438,13 +461,14 @@ export function AdminClient() {
 
       <div className={clsx("toast-line", error && "error")}>{error}</div>
 
-      {stats ? (
+      {stats ? null : <div className="toast-line" aria-live="polite">统计加载中，配置面板可继续使用。</div>}
+
         <>
           <section className="stats-grid">
-            <StatCard label="今日生成次数" value={stats.today.totalTasks} icon={<BarChart3 size={18} />} />
-            <StatCard label="本周生成次数" value={stats.week.totalTasks} icon={<TrendingUp size={18} />} />
-            <StatCard label="成功 / 失败" value={`${stats.week.succeededTasks} / ${stats.week.failedTasks}`} icon={<BarChart3 size={18} />} />
-            <StatCard label="本周预估成本" value={`$${stats.week.estimatedCost.toFixed(2)}`} icon={<DollarSign size={18} />} />
+            <StatCard label="今日生成次数" value={displayStats.today.totalTasks} icon={<BarChart3 size={18} />} />
+            <StatCard label="本周生成次数" value={displayStats.week.totalTasks} icon={<TrendingUp size={18} />} />
+            <StatCard label="成功 / 失败" value={`${displayStats.week.succeededTasks} / ${displayStats.week.failedTasks}`} icon={<BarChart3 size={18} />} />
+            <StatCard label="本周预估成本" value={`$${displayStats.week.estimatedCost.toFixed(2)}`} icon={<DollarSign size={18} />} />
           </section>
 
           <section className="panel" style={{ marginTop: "1rem" }}>
@@ -1002,6 +1026,11 @@ export function AdminClient() {
                 <KeyRound size={16} aria-hidden="true" />
                 {openAISaving ? "处理中" : "连接 OpenAI 账号"}
               </button>
+              {pendingOpenAIAuthUrl ? (
+                <a className="button" href={pendingOpenAIAuthUrl} target="_blank" rel="noreferrer">
+                  打开备用授权链接
+                </a>
+              ) : null}
               <small>
                 说明：该流程参考 Codex CLI OAuth + PKCE。若部署在服务器上，请设置固定回调地址并确保
                 OPENAI_OAUTH_TOKEN_ENCRYPTION_KEY 已配置。
@@ -1018,8 +1047,8 @@ export function AdminClient() {
               </div>
             </div>
             <div className="panel-body popular-list">
-              {stats.popularTemplates.length > 0 ? (
-                stats.popularTemplates.map((template) => (
+              {displayStats.popularTemplates.length > 0 ? (
+                displayStats.popularTemplates.map((template) => (
                   <div className="popular-row" key={template.templateId}>
                     <strong>{template.name}</strong>
                     <span className="badge">{template.count} 次</span>
@@ -1033,11 +1062,6 @@ export function AdminClient() {
             </div>
           </section>
         </>
-      ) : (
-        <div className="empty-state">
-          <span>统计加载中</span>
-        </div>
-      )}
     </>
   );
 }
