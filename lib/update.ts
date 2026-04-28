@@ -1,5 +1,5 @@
-import { appConfig } from "@/lib/config";
-import { appVersion, compareSemver, normalizeVersion } from "@/lib/version";
+import { appConfig } from "./config";
+import { appVersion, compareSemver, normalizeVersion } from "./version";
 
 export interface SystemUpdateInfo {
   currentVersion: string;

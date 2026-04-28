@@ -1,4 +1,4 @@
-import packageJson from "@/package.json";
+import packageJson from "../package.json";
 
 export const appVersion = packageJson.version;
 export const defaultUpdateRepo = "laolin5564/huajing-studio";

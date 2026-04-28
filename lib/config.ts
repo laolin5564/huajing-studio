@@ -1,5 +1,5 @@
 import path from "node:path";
-import { defaultUpdateCheckUrl, defaultUpdateRepo } from "@/lib/version";
+import { defaultUpdateCheckUrl, defaultUpdateRepo } from "./version";
 
 function resolvePathFromEnv(value: string | undefined, fallback: string): string {
   if (!value || value.trim() === "") {

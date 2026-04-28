@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { appConfig } from "@/lib/config";
+import { appConfig } from "./config";
 
 export type WebUpdateStatus = "idle" | "running" | "succeeded" | "failed";
 
