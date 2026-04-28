@@ -522,7 +522,6 @@ export function AdminClient() {
       <section className="page-heading">
         <div>
           <h1>管理员后台</h1>
-          <p>配置站点、模型服务、账号分组和生成额度，同时查看生成使用情况。</p>
         </div>
         <button className="button" type="button" onClick={loadStats} disabled={loading}>
           <RefreshCw size={16} aria-hidden="true" />
@@ -546,7 +545,6 @@ export function AdminClient() {
             <div className="panel-header">
               <div>
                 <h2>系统更新</h2>
-                <p>从 GitHub Releases 检查新版本；启用后可在后台执行受限的一键更新脚本。</p>
               </div>
               <span className={clsx("badge", systemUpdate?.updateAvailable ? "warning" : "success")}>
                 {systemUpdate?.updateAvailable ? "发现新版本" : "当前已是最新"}
@@ -581,7 +579,6 @@ export function AdminClient() {
               <div className="field">
                 <label>推荐更新命令</label>
                 <code className="command-box">{systemUpdate?.updateCommand ?? "WEB_UPDATE_ENABLED=true bash scripts/web-update.sh"}</code>
-                <small>Web 按钮只会调用项目内固定 scripts/web-update.sh；默认关闭，需设置 WEB_UPDATE_ENABLED=true 并准备 Docker Compose 权限。</small>
               </div>
               <div className="field-row">
                 <div className="field">
@@ -630,7 +627,6 @@ export function AdminClient() {
             <div className="panel-header">
               <div>
                 <h2>账号与分组</h2>
-                <p>按分组设置每月生成图片次数，管理员可调整账号角色和所属分组。</p>
               </div>
               <span className="badge">
                 <Users size={13} aria-hidden="true" />
@@ -907,7 +903,6 @@ export function AdminClient() {
             <div className="panel-header">
               <div>
                 <h2>站点与模型配置</h2>
-                <p>站点注册策略和模型服务端参数集中管理，密钥不会在页面或接口响应中回显。</p>
               </div>
               {isOpenAIOAuthProvider ? (
                 <span className="badge">
@@ -954,7 +949,6 @@ export function AdminClient() {
                   />
                   <span>
                     <strong>开放注册</strong>
-                    <small>关闭后只能由管理员在后台创建账号</small>
                   </span>
                 </label>
                 <div className="field">
@@ -995,11 +989,6 @@ export function AdminClient() {
                   <option value="sub2api">sub2api / OpenAI-compatible API Key</option>
                   <option value="openai_oauth">内置 OpenAI OAuth（实验性）</option>
                 </select>
-                <small>
-                  {isOpenAIOAuthProvider
-                    ? "OAuth 模式会优先使用下方已连接且启用的 OpenAI 账号，通过 Codex Responses 图片工具生成。"
-                    : "sub2api 模式使用服务端保存的 Base URL、模型和 API Key 调用图片接口。"}
-                </small>
               </div>
               {isOpenAIOAuthProvider ? null : (
                 <>
@@ -1063,7 +1052,6 @@ export function AdminClient() {
             <div className="panel-header">
               <div>
                 <h2>OpenAI 账号连接</h2>
-                <p>内置 OAuth 账号连接器第一版。token 仅服务端保存并加密，不会回显到页面。</p>
               </div>
               <span className="badge">实验性</span>
             </div>
@@ -1083,9 +1071,6 @@ export function AdminClient() {
                   autoComplete="off"
                   spellCheck={false}
                 />
-                <small>
-                  支持 HTTP、HTTPS、SOCKS5、SOCKS5H，也兼容 socket5 写法。用于服务端交换 token、刷新 token 和 Codex 图片请求；带账号密码的代理不会回显明文。
-                </small>
               </div>
               <div className="button-row">
                 <button
@@ -1158,9 +1143,6 @@ export function AdminClient() {
                       打开备用授权链接
                     </a>
                   </div>
-                  <small>
-                    授权完成后，OpenAI 会跳到 localhost 回调地址。即使页面显示无法访问，也可以复制地址栏里的完整链接。
-                  </small>
                   <textarea
                     className="textarea oauth-callback-input"
                     value={openAICallbackInput}
@@ -1178,11 +1160,6 @@ export function AdminClient() {
                   </button>
                 </div>
               ) : null}
-              <small>
-                说明：该流程参考 sub2api / Codex CLI OAuth + PKCE，默认使用 http://localhost:1455/auth/callback
-                回调。OAuth 登录只申请 Codex client 允许的基础 scope；图片生成会走 ChatGPT Codex Responses
-                图片工具桥接。请确保 OPENAI_OAUTH_TOKEN_ENCRYPTION_KEY 已配置。
-              </small>
               <div className="toast-line">{openAIMessage}</div>
             </div>
           </section>
@@ -1191,7 +1168,6 @@ export function AdminClient() {
             <div className="panel-header">
               <div>
                 <h2>热门模板</h2>
-                <p>按本周任务使用次数排序</p>
               </div>
             </div>
             <div className="panel-body popular-list">
