@@ -18,8 +18,13 @@ export async function processNextQueuedTask(): Promise<boolean> {
   }
 
   try {
-    const sourceImagePath = task.source_image_id ? getImageFilePathById(task.source_image_id) : null;
-    const generated = await runWithTaskCancellation(task.id, (signal) => callImageModel(task, sourceImagePath, signal));
+    const sourceImagePaths = [task.source_image_id, task.reference_image_id]
+      .filter((id): id is string => Boolean(id))
+      .map((id) => getImageFilePathById(id))
+      .filter((filePath): filePath is string => Boolean(filePath));
+    const generated = await runWithTaskCancellation(task.id, (signal) =>
+      callImageModel(task, sourceImagePaths, signal),
+    );
     const current = getGenerationTask(task.id);
     if (!current || current.status !== "processing") {
       return true;

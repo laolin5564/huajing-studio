@@ -1,5 +1,42 @@
 import path from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { defaultUpdateCheckUrl, defaultUpdateRepo } from "./version";
+
+loadLocalEnvFiles();
+
+function loadLocalEnvFiles(): void {
+  for (const filename of [".env.local", ".env"]) {
+    const envPath = path.resolve(process.cwd(), filename);
+    if (!existsSync(envPath)) {
+      continue;
+    }
+
+    const lines = readFileSync(envPath, "utf8").split(/\r?\n/);
+    for (const line of lines) {
+      const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)?\s*$/);
+      if (!match) {
+        continue;
+      }
+      const key = match[1];
+      if (process.env[key] !== undefined) {
+        continue;
+      }
+      process.env[key] = parseEnvValue(match[2] ?? "");
+    }
+  }
+}
+
+function parseEnvValue(value: string): string {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  const commentIndex = trimmed.search(/\s#/);
+  return commentIndex >= 0 ? trimmed.slice(0, commentIndex).trim() : trimmed;
+}
 
 function resolvePathFromEnv(value: string | undefined, fallback: string): string {
   if (!value || value.trim() === "") {

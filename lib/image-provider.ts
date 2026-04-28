@@ -1,5 +1,4 @@
 import { lookup } from "node:dns/promises";
-import { readFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import path from "node:path";
 import { appConfig, IMAGE_USER_AGENT } from "./config";
@@ -18,12 +17,16 @@ import {
   shouldRefreshOpenAIToken,
   tokenExpiresAt,
 } from "./openai-oauth";
+import { extractOpenAIOAuthImagesFromResponsesStream } from "./openai-image-bridge";
+import { formatModelError } from "./model-error";
+import { fetchWithOptionalProxy } from "./proxy";
 import type { GenerationTaskRow, ImageProvider, OpenAIOAuthAccountRow } from "./types";
-import { assertSupportedImage, assertSupportedImageBytes, mimeFromFileName, resolveStoragePath } from "./storage";
+import { assertSupportedImage, assertSupportedImageBytes, mimeFromFileName, readStorageFile } from "./storage";
 
 interface ImageApiItem {
   b64_json?: string;
   url?: string;
+  mimeType?: string | null;
 }
 
 interface ImageApiResponse {
@@ -31,6 +34,9 @@ interface ImageApiResponse {
 }
 
 const maxDownloadedImageBytes = 25 * 1024 * 1024;
+const openAIChatGPTCodexResponsesUrl = "https://chatgpt.com/backend-api/codex/responses";
+const openAICodexResponsesModel = "gpt-5.4-mini";
+const openAICodexUserAgent = "codex_cli_rs/0.125.0";
 
 interface ImageRequestSettings {
   provider: ImageProvider;
@@ -38,7 +44,9 @@ interface ImageRequestSettings {
   bearerToken: string;
   imageModel: string;
   imageConcurrency: number;
+  openaiOAuthProxyUrl?: string;
   oauthAccountId?: string;
+  chatGPTAccountId?: string | null;
 }
 
 export interface MaterializedImage {
@@ -48,7 +56,7 @@ export interface MaterializedImage {
 
 export async function callImageModel(
   task: GenerationTaskRow,
-  sourceImagePath: string | null,
+  sourceImagePaths: string[],
   signal?: AbortSignal,
 ): Promise<MaterializedImage[]> {
   const settings = await resolveImageProviderSettings(signal);
@@ -62,7 +70,7 @@ export async function callImageModel(
         const result =
           task.mode === "text_to_image"
             ? await requestTextToImage(task, settings, 1, signal)
-            : await requestImageEdit(task, sourceImagePath, settings, 1, signal);
+            : await requestImageEdit(task, sourceImagePaths, settings, 1, signal);
         return normalizeImageItems(result);
       }),
     );
@@ -85,14 +93,16 @@ async function resolveImageProviderSettings(signal?: AbortSignal): Promise<Image
     if (!account) {
       throw new Error("已选择 OpenAI OAuth 模式，但后台没有可用 OpenAI 账号");
     }
-    const accessToken = await getFreshOpenAIAccessToken(account, signal);
+    const accessToken = await getFreshOpenAIAccessToken(account, settings.openaiOAuthProxyUrl, signal);
     return {
       provider: "openai_oauth",
       baseUrl: appConfig.openaiOAuthApiBaseUrl.replace(/\/+$/, ""),
       bearerToken: accessToken,
       imageModel: settings.imageModel,
       imageConcurrency: settings.imageConcurrency,
+      openaiOAuthProxyUrl: settings.openaiOAuthProxyUrl,
       oauthAccountId: account.id,
+      chatGPTAccountId: account.account_id,
     };
   }
 
@@ -108,7 +118,11 @@ async function resolveImageProviderSettings(signal?: AbortSignal): Promise<Image
   };
 }
 
-async function getFreshOpenAIAccessToken(account: OpenAIOAuthAccountRow, signal?: AbortSignal): Promise<string> {
+async function getFreshOpenAIAccessToken(
+  account: OpenAIOAuthAccountRow,
+  proxyUrl?: string | null,
+  signal?: AbortSignal,
+): Promise<string> {
   if (!shouldRefreshOpenAIToken(account.expires_at)) {
     return decryptToken(account.access_token_ciphertext);
   }
@@ -118,6 +132,7 @@ async function getFreshOpenAIAccessToken(account: OpenAIOAuthAccountRow, signal?
     const refreshed = await refreshOpenAIOAuthToken({
       refreshToken: currentRefreshToken,
       clientId: account.client_id,
+      proxyUrl,
       signal: requestSignal(signal),
     });
     const userInfo = decodeOpenAIIdToken(refreshed.id_token);
@@ -146,6 +161,10 @@ async function requestTextToImage(
   quantity: number,
   signal?: AbortSignal,
 ): Promise<unknown> {
+  if (settings.provider === "openai_oauth") {
+    return requestOpenAIOAuthImage(task, [], settings, signal);
+  }
+
   const body: Record<string, string | number> = {
     model: settings.imageModel,
     prompt: buildPrompt(task),
@@ -173,22 +192,27 @@ async function requestTextToImage(
 
 async function requestImageEdit(
   task: GenerationTaskRow,
-  sourceImagePath: string | null,
+  sourceImagePaths: string[],
   settings: ImageRequestSettings,
   quantity: number,
   signal?: AbortSignal,
 ): Promise<unknown> {
-  if (!sourceImagePath) {
+  if (settings.provider === "openai_oauth") {
+    return requestOpenAIOAuthImage(task, sourceImagePaths, settings, signal);
+  }
+
+  if (sourceImagePaths.length === 0) {
     throw new Error("缺少参考图，无法调用图片编辑接口");
   }
 
-  const absolutePath = resolveStoragePath(sourceImagePath);
-  const bytes = await readFile(absolutePath);
-  const mimeType = mimeFromFileName(sourceImagePath);
-  const blob = new Blob([new Uint8Array(bytes)], { type: mimeType });
   const form = new FormData();
   form.append("model", settings.imageModel);
-  form.append("image", blob, path.basename(sourceImagePath));
+  for (const sourceImagePath of sourceImagePaths) {
+    const bytes = await readStorageFile(sourceImagePath).then((image) => image.bytes);
+    const mimeType = mimeFromFileName(sourceImagePath);
+    const blob = new Blob([new Uint8Array(bytes)], { type: mimeType });
+    form.append("image", blob, path.basename(sourceImagePath));
+  }
   form.append("prompt", buildPrompt(task));
   form.append("n", String(quantity));
   const apiSize = apiSizeForOption(task.size);
@@ -209,6 +233,98 @@ async function requestImageEdit(
   return readModelResponse(response, "image edit failed", settings);
 }
 
+async function requestOpenAIOAuthImage(
+  task: GenerationTaskRow,
+  sourceImagePaths: string[],
+  settings: ImageRequestSettings,
+  signal?: AbortSignal,
+): Promise<ImageApiResponse> {
+  const body = await buildOpenAIOAuthResponsesBody(task, sourceImagePaths, settings);
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${settings.bearerToken}`,
+    "Content-Type": "application/json",
+    Accept: "text/event-stream",
+    "OpenAI-Beta": "responses=experimental",
+    originator: "codex_cli_rs",
+    "User-Agent": openAICodexUserAgent,
+  };
+  if (settings.chatGPTAccountId) {
+    headers["chatgpt-account-id"] = settings.chatGPTAccountId;
+  }
+  if (task.conversation_id) {
+    const sessionId = `huajing-${task.conversation_id}`;
+    headers.conversation_id = sessionId;
+    headers.session_id = sessionId;
+  }
+
+  const response = await fetchWithOptionalProxy(openAIChatGPTCodexResponsesUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    signal: requestSignal(signal),
+  }, settings.openaiOAuthProxyUrl);
+
+  if (!response.ok) {
+    const text = await response.text();
+    const message = formatModelError(response.status, text, "OpenAI OAuth Codex image generation failed");
+    if (response.status === 401 && settings.oauthAccountId) {
+      updateOpenAIOAuthAccountStatus(settings.oauthAccountId, "error", message);
+    }
+    throw new Error(message);
+  }
+
+  const text = await response.text();
+  const images = extractOpenAIOAuthImagesFromResponsesStream(text);
+  if (images.length === 0) {
+    throw new Error("OpenAI OAuth Codex Responses 未返回图片数据");
+  }
+  return { data: images };
+}
+
+async function buildOpenAIOAuthResponsesBody(
+  task: GenerationTaskRow,
+  sourceImagePaths: string[],
+  settings: ImageRequestSettings,
+): Promise<Record<string, unknown>> {
+  const content: Array<Record<string, string>> = [{ type: "input_text", text: buildPrompt(task) }];
+  if (task.mode !== "text_to_image") {
+    if (sourceImagePaths.length === 0) {
+      throw new Error("缺少参考图，无法调用图片编辑接口");
+    }
+    for (const sourceImagePath of sourceImagePaths) {
+      const source = await readStorageFile(sourceImagePath);
+      content.push({
+        type: "input_image",
+        image_url: `data:${source.mimeType};base64,${Buffer.from(source.bytes).toString("base64")}`,
+      });
+    }
+  }
+
+  const tool: Record<string, unknown> = {
+    type: "image_generation",
+    action: task.mode === "text_to_image" ? "generate" : "edit",
+    model: settings.imageModel,
+    output_format: "png",
+  };
+  const apiSize = apiSizeForOption(task.size);
+  if (apiSize) {
+    tool.size = apiSize;
+  }
+
+  return {
+    instructions: "",
+    stream: true,
+    reasoning: { effort: "medium", summary: "auto" },
+    parallel_tool_calls: true,
+    include: ["reasoning.encrypted_content"],
+    model: openAICodexResponsesModel,
+    store: false,
+    tool_choice: { type: "image_generation" },
+    input: [{ type: "message", role: "user", content }],
+    tools: [tool],
+  };
+}
+
 function buildPrompt(task: GenerationTaskRow): string {
   const parts = [task.prompt.trim()];
   if (task.negative_prompt && task.negative_prompt.trim() !== "") {
@@ -217,6 +333,9 @@ function buildPrompt(task: GenerationTaskRow): string {
 
   if (task.mode !== "text_to_image") {
     parts.push(`参考强度：${task.reference_strength.toFixed(2)}；风格强度：${task.style_strength.toFixed(2)}。`);
+    if (task.reference_image_id) {
+      parts.push("图片参考关系：第一张图片是需要修改的当前生成结果，后续图片是额外参考图；请以第一张图片为主，结合额外参考图和文字提示进行二次修改。");
+    }
   }
 
   return parts.join("\n");
@@ -239,25 +358,6 @@ async function readModelResponse(
   return response.json();
 }
 
-function formatModelError(status: number, text: string, fallback: string): string {
-  const plainText = text
-    .replace(/"access_token"\s*:\s*"[^"]+"/gi, '"access_token":"[redacted]"')
-    .replace(/"refresh_token"\s*:\s*"[^"]+"/gi, '"refresh_token":"[redacted]"')
-    .replace(/"id_token"\s*:\s*"[^"]+"/gi, '"id_token":"[redacted]"')
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (status === 524 || /timeout occurred/i.test(text)) {
-    return "模型接口超时（524）：上游生成服务响应太慢，请稍后重试，或在管理员后台降低并发请求数。";
-  }
-
-  const detail = plainText || text.trim();
-  return `${fallback}: ${status}${detail ? ` ${detail.slice(0, 220)}` : ""}`;
-}
-
 function normalizeImageItems(payload: unknown): ImageApiItem[] {
   const response = payload as ImageApiResponse;
   if (!Array.isArray(response.data)) {
@@ -275,7 +375,7 @@ async function materializeImageItem(item: ImageApiItem, signal?: AbortSignal): P
     }
     return {
       bytes,
-      mimeType: "image/png",
+      mimeType: item.mimeType || "image/png",
     };
   }
 

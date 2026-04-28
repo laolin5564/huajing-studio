@@ -1,14 +1,17 @@
 import crypto from "node:crypto";
 import { appConfig, IMAGE_USER_AGENT } from "./config";
+import { fetchWithOptionalProxy } from "./proxy";
 import type { OpenAIOAuthSessionRow } from "./types";
 
 export const openAIOAuthProviderId = "openai_oauth" as const;
+export const openAIOAuthImageGenerationScope = "api.model.images.request";
 
 const authorizeUrl = "https://auth.openai.com/oauth/authorize";
 const tokenUrl = "https://auth.openai.com/oauth/token";
 const defaultScopes = "openid profile email offline_access";
 const refreshScopes = "openid profile email";
 const defaultClientId = "app_EMoamEEZ73f0CkXaXp7hrann";
+export const defaultOpenAIOAuthRedirectUri = "http://localhost:1455/auth/callback";
 const sessionTtlMs = 30 * 60 * 1000;
 const tokenRefreshSkewMs = 2 * 60 * 1000;
 
@@ -33,12 +36,11 @@ export function getOpenAIOAuthClientId(): string {
   return appConfig.openaiOAuthClientId || defaultClientId;
 }
 
-export function getOpenAIOAuthRedirectUri(requestUrl: string): string {
+export function getOpenAIOAuthRedirectUri(): string {
   if (appConfig.openaiOAuthRedirectUri) {
     return appConfig.openaiOAuthRedirectUri;
   }
-  const url = new URL(requestUrl);
-  return `${url.origin}/api/admin/openai-accounts/oauth/callback`;
+  return defaultOpenAIOAuthRedirectUri;
 }
 
 export function createOpenAIOAuthSession(redirectUri: string): {
@@ -81,6 +83,7 @@ export function buildOpenAIAuthorizationUrl(input: {
 export async function exchangeOpenAIOAuthCode(input: {
   code: string;
   session: OpenAIOAuthSessionRow;
+  proxyUrl?: string | null;
   signal?: AbortSignal;
 }): Promise<OpenAITokenResponse> {
   const params = new URLSearchParams({
@@ -90,12 +93,13 @@ export async function exchangeOpenAIOAuthCode(input: {
     redirect_uri: input.session.redirect_uri,
     code_verifier: input.session.code_verifier,
   });
-  return postTokenRequest(params, input.signal);
+  return postTokenRequest(params, input.signal, input.proxyUrl);
 }
 
 export async function refreshOpenAIOAuthToken(input: {
   refreshToken: string;
   clientId?: string | null;
+  proxyUrl?: string | null;
   signal?: AbortSignal;
 }): Promise<OpenAITokenResponse> {
   const params = new URLSearchParams({
@@ -104,11 +108,15 @@ export async function refreshOpenAIOAuthToken(input: {
     client_id: input.clientId || getOpenAIOAuthClientId(),
     scope: refreshScopes,
   });
-  return postTokenRequest(params, input.signal);
+  return postTokenRequest(params, input.signal, input.proxyUrl);
 }
 
-async function postTokenRequest(params: URLSearchParams, signal?: AbortSignal): Promise<OpenAITokenResponse> {
-  const response = await fetch(tokenUrl, {
+async function postTokenRequest(
+  params: URLSearchParams,
+  signal?: AbortSignal,
+  proxyUrl?: string | null,
+): Promise<OpenAITokenResponse> {
+  const response = await fetchWithOptionalProxy(tokenUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -116,11 +124,17 @@ async function postTokenRequest(params: URLSearchParams, signal?: AbortSignal): 
     },
     body: params.toString(),
     signal,
-  });
+  }, proxyUrl);
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`OpenAI OAuth token request failed: ${response.status}${text ? ` ${sanitizeErrorText(text)}` : ""}`);
+    const sanitized = sanitizeErrorText(text);
+    if (sanitized.includes("token_exchange_user_error")) {
+      throw new Error(
+        `OpenAI OAuth token request failed: ${response.status} 授权链接已使用或过期，请重新发起 OpenAI 授权。`,
+      );
+    }
+    throw new Error(`OpenAI OAuth token request failed: ${response.status}${sanitized ? ` ${sanitized}` : ""}`);
   }
 
   const payload = (await response.json()) as OpenAITokenResponse;
@@ -141,6 +155,10 @@ export function tokenExpiresAt(expiresIn?: number): string {
 
 export function shouldRefreshOpenAIToken(expiresAt: string): boolean {
   return new Date(expiresAt).getTime() <= Date.now() + tokenRefreshSkewMs;
+}
+
+export function assertOpenAIOAuthTokenEncryptionReady(): void {
+  getEncryptionKey();
 }
 
 export function decodeOpenAIIdToken(idToken?: string | null): DecodedOpenAIUserInfo {

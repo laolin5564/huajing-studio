@@ -4,10 +4,13 @@ import {
   deleteOpenAIOAuthSession,
   getOpenAIOAuthSession,
   getOpenAIOAuthSessionByState,
+  getRuntimeImageSettings,
+  toPublicOpenAIOAuthAccount,
   upsertOpenAIOAuthAccount,
 } from "@/lib/db";
-import { handleRouteError, jsonError } from "@/lib/http";
+import { handleRouteError } from "@/lib/http";
 import {
+  assertOpenAIOAuthTokenEncryptionReady,
   decodeOpenAIIdToken,
   encryptToken,
   exchangeOpenAIOAuthCode,
@@ -29,35 +32,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const sessionId = url.searchParams.get("session_id") ?? url.searchParams.get("sessionId");
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
-    if (!code || !state) {
-      return jsonError("OpenAI OAuth callback 缺少 code 或 state", 400);
-    }
+    const result = await completeOpenAIOAuth({ code, state, sessionId });
 
-    const session = sessionId ? getOpenAIOAuthSession(sessionId) : getOpenAIOAuthSessionByState(state);
-    if (!session || session.state !== state) {
-      return jsonError("OpenAI OAuth 会话不存在、已过期或 state 不匹配", 400);
-    }
-
-    const token = await exchangeOpenAIOAuthCode({ code, session });
-    if (!token.refresh_token) {
-      return jsonError("OpenAI OAuth 响应缺少 refresh_token，请重新授权并确认包含 offline_access scope", 400);
-    }
-
-    const userInfo = decodeOpenAIIdToken(token.id_token);
-    upsertOpenAIOAuthAccount({
-      email: userInfo.email,
-      accountId: userInfo.accountId,
-      userId: userInfo.userId,
-      organizationId: userInfo.organizationId,
-      planType: userInfo.planType,
-      clientId: session.client_id,
-      accessTokenCiphertext: encryptToken(token.access_token),
-      refreshTokenCiphertext: encryptToken(token.refresh_token),
-      expiresAt: tokenExpiresAt(token.expires_in),
-    });
-    deleteOpenAIOAuthSession(session.id);
-
-    return htmlResponse("OpenAI 账号已连接，可以关闭此页面并回到后台刷新。", true);
+    return htmlResponse(
+      `OpenAI 账号已连接：${result.account.email ?? result.account.accountId ?? "OpenAI 账号"}，可以关闭此页面并回到后台刷新。`,
+      true,
+    );
   } catch (caught) {
     const response = handleRouteError(caught);
     if (response.status >= 500) {
@@ -65,6 +45,164 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
     return response;
   }
+}
+
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  try {
+    requireAdmin(request);
+    const body = (await request.json().catch(() => ({}))) as {
+      callbackUrl?: unknown;
+      code?: unknown;
+      state?: unknown;
+      sessionId?: unknown;
+      session_id?: unknown;
+    };
+    const parsed = parseCallbackPayload(body);
+    const result = await completeOpenAIOAuth(parsed);
+    return NextResponse.json({ account: result.account });
+  } catch (error) {
+    return handleRouteError(error);
+  }
+}
+
+async function completeOpenAIOAuth(input: {
+  code: string | null;
+  state: string | null;
+  sessionId?: string | null;
+}): Promise<{
+  account: ReturnType<typeof toPublicOpenAIOAuthAccount>;
+}> {
+  const code = input.code?.trim();
+  const state = input.state?.trim();
+  const sessionId = input.sessionId?.trim();
+  if (!code) {
+    throw routeError("OpenAI OAuth callback 缺少 code", 400);
+  }
+
+  const session = sessionId ? getOpenAIOAuthSession(sessionId) : state ? getOpenAIOAuthSessionByState(state) : null;
+  if (!session) {
+    throw routeError("OpenAI OAuth 会话不存在或已过期，请重新发起授权", 400);
+  }
+
+  const expectedState = state || session.state;
+  if (session.state !== expectedState) {
+    throw routeError("OpenAI OAuth state 不匹配，请重新发起授权", 400);
+  }
+
+  try {
+    assertOpenAIOAuthTokenEncryptionReady();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "OpenAI OAuth token 加密配置不可用";
+    throw routeError(message, 400);
+  }
+
+  const token = await exchangeOpenAIOAuthCode({
+    code,
+    session,
+    proxyUrl: getRuntimeImageSettings().openaiOAuthProxyUrl,
+  });
+  if (!token.refresh_token) {
+    throw routeError("OpenAI OAuth 响应缺少 refresh_token，请重新授权并确认包含 offline_access scope", 400);
+  }
+
+  const userInfo = decodeOpenAIIdToken(token.id_token);
+  const account = upsertOpenAIOAuthAccount({
+    email: userInfo.email,
+    accountId: userInfo.accountId,
+    userId: userInfo.userId,
+    organizationId: userInfo.organizationId,
+    planType: userInfo.planType,
+    clientId: session.client_id,
+    accessTokenCiphertext: encryptToken(token.access_token),
+    refreshTokenCiphertext: encryptToken(token.refresh_token),
+    expiresAt: tokenExpiresAt(token.expires_in),
+  });
+  deleteOpenAIOAuthSession(session.id);
+
+  return { account: toPublicOpenAIOAuthAccount(account) };
+}
+
+function parseCallbackPayload(body: {
+  callbackUrl?: unknown;
+  code?: unknown;
+  state?: unknown;
+  sessionId?: unknown;
+  session_id?: unknown;
+}): {
+  code: string | null;
+  state: string | null;
+  sessionId: string | null;
+} {
+  const callbackUrl = readString(body.callbackUrl);
+  const directCode = readString(body.code);
+  const directState = readString(body.state);
+  const sessionId = readString(body.sessionId) || readString(body.session_id);
+  if (!callbackUrl) {
+    return { code: directCode || null, state: directState || null, sessionId: sessionId || null };
+  }
+
+  const parsed = parseCallbackUrl(callbackUrl);
+  return {
+    code: parsed.code || directCode || null,
+    state: parsed.state || directState || null,
+    sessionId: sessionId || null,
+  };
+}
+
+function parseCallbackUrl(raw: string): {
+  code: string | null;
+  state: string | null;
+} {
+  try {
+    const url = new URL(raw);
+    const error = url.searchParams.get("error");
+    if (error) {
+      throw routeError(`OpenAI OAuth 授权失败：${error}`, 400);
+    }
+    return {
+      code: url.searchParams.get("code"),
+      state: url.searchParams.get("state"),
+    };
+  } catch (caught) {
+    if (isRouteError(caught)) {
+      throw caught;
+    }
+    return {
+      code: extractQueryValue(raw, "code") || raw.trim(),
+      state: extractQueryValue(raw, "state"),
+    };
+  }
+}
+
+function extractQueryValue(raw: string, key: string): string | null {
+  const match = raw.match(new RegExp(`[?&]${key}=([^&#]+)`));
+  if (!match?.[1]) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(match[1].replaceAll("+", "%20"));
+  } catch {
+    return match[1];
+  }
+}
+
+function readString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function routeError(message: string, status: number): { message: string; status: number } {
+  return { message, status };
+}
+
+function isRouteError(value: unknown): value is { message: string; status: number } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "message" in value &&
+    "status" in value &&
+    typeof (value as { message?: unknown }).message === "string" &&
+    typeof (value as { status?: unknown }).status === "number"
+  );
 }
 
 function htmlResponse(message: string, ok: boolean): NextResponse {

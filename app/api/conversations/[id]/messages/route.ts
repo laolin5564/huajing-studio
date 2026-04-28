@@ -10,7 +10,12 @@ import {
 } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { handleRouteError, jsonError } from "@/lib/http";
-import { assertConversationAccess, assertGeneratedImageAccess, assertQuotaAvailable } from "@/lib/permissions";
+import {
+  assertConversationAccess,
+  assertGeneratedImageAccess,
+  assertImageReferenceAccess,
+  assertQuotaAvailable,
+} from "@/lib/permissions";
 import { continueConversationSchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -31,13 +36,18 @@ export async function POST(
 
     const input = continueConversationSchema.parse(await request.json());
     const latestImage = getLatestConversationImage(id);
-    const explicitSourceImage = input.sourceImageId ? getGeneratedImage(input.sourceImageId) : null;
-    const sourceImage = explicitSourceImage ?? latestImage;
+    const sourceImage = input.sourceImageId ? getGeneratedImage(input.sourceImageId) : latestImage;
 
     if (!sourceImage || !getImageFilePathById(sourceImage.id)) {
       return jsonError("当前会话还没有可继续改图的图片", 400);
     }
     assertGeneratedImageAccess(user, sourceImage);
+    if (input.referenceImageId) {
+      assertImageReferenceAccess(user, input.referenceImageId);
+      if (!getImageFilePathById(input.referenceImageId)) {
+        return jsonError("参考图不存在或已无法访问", 400);
+      }
+    }
     assertQuotaAvailable(user, input.quantity);
 
     const task = createGenerationTask({
@@ -50,6 +60,7 @@ export async function POST(
       quantity: input.quantity,
       templateId: sourceImage.template_id,
       sourceImageId: sourceImage.id,
+      referenceImageId: input.referenceImageId,
       referenceStrength: input.referenceStrength,
       styleStrength: input.styleStrength,
     });

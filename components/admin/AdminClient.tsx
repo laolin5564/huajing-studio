@@ -96,6 +96,10 @@ export function AdminClient() {
   const [updateError, setUpdateError] = useState("");
   const [updateMessage, setUpdateMessage] = useState("");
   const [pendingOpenAIAuthUrl, setPendingOpenAIAuthUrl] = useState("");
+  const [pendingOpenAIAuthSessionId, setPendingOpenAIAuthSessionId] = useState("");
+  const [pendingOpenAIAuthState, setPendingOpenAIAuthState] = useState("");
+  const [openAICallbackInput, setOpenAICallbackInput] = useState("");
+  const [openAIProxyUrl, setOpenAIProxyUrl] = useState("");
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updateRunning, setUpdateRunning] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
@@ -114,6 +118,7 @@ export function AdminClient() {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [accountsSaving, setAccountsSaving] = useState(false);
   const [openAISaving, setOpenAISaving] = useState(false);
+  const isOpenAIOAuthProvider = imageProvider === "openai_oauth";
 
   async function loadStats(): Promise<void> {
     setLoading(true);
@@ -140,6 +145,7 @@ export function AdminClient() {
     setRegistrationEnabled(payload.settings.registrationEnabled);
     setRegistrationDefaultGroupId(payload.settings.registrationDefaultGroupId);
     setRegistrationDefaultQuota(payload.settings.registrationDefaultQuota);
+    setOpenAIProxyUrl("");
     setNewUserGroupId((current) => current || payload.settings.registrationDefaultGroupId);
     setNewUserQuota(payload.settings.registrationDefaultQuota);
   }
@@ -227,22 +233,65 @@ export function AdminClient() {
     setOpenAISaving(true);
     setOpenAIMessage("");
     setPendingOpenAIAuthUrl("");
+    setPendingOpenAIAuthSessionId("");
+    setPendingOpenAIAuthState("");
+    setOpenAICallbackInput("");
     setError("");
     try {
       const payload = await apiJson<OpenAIOAuthStartResponse>("/api/admin/openai-accounts", {
         method: "POST",
-        body: JSON.stringify({}),
+        body: JSON.stringify(openAIProxyUrl.trim() ? { proxyUrl: openAIProxyUrl.trim() } : {}),
       });
+      if (openAIProxyUrl.trim()) {
+        await loadSettings();
+      }
+      const oauthState = getQueryParam(payload.authUrl, "state");
+      setPendingOpenAIAuthUrl(payload.authUrl);
+      setPendingOpenAIAuthSessionId(payload.sessionId);
+      setPendingOpenAIAuthState(oauthState);
       if (authWindow) {
         authWindow.location.href = payload.authUrl;
-        setOpenAIMessage("已打开 OpenAI 授权页。授权完成后回到这里刷新账号列表。");
+        setOpenAIMessage("已打开 OpenAI 授权页。授权完成后复制浏览器地址栏中的 localhost 回调地址，粘贴到下方完成连接。");
       } else {
-        setPendingOpenAIAuthUrl(payload.authUrl);
-        setOpenAIMessage("浏览器拦截了授权弹窗，请点击下方备用授权链接打开 OpenAI。");
+        setOpenAIMessage("浏览器拦截了授权弹窗，请点击下方备用授权链接打开 OpenAI，并在授权后粘贴回调地址。");
       }
     } catch (caught) {
       authWindow?.close();
       setError(caught instanceof Error ? caught.message : "OpenAI 授权发起失败");
+    } finally {
+      setOpenAISaving(false);
+    }
+  }
+
+  async function completeOpenAIAccountAuth(): Promise<void> {
+    if (!openAICallbackInput.trim()) {
+      setError("请粘贴授权后的 localhost 回调地址或 code。");
+      return;
+    }
+
+    setOpenAISaving(true);
+    setOpenAIMessage("");
+    setError("");
+    try {
+      const payload = await apiJson<OpenAIOAuthAccountResponse>("/api/admin/openai-accounts/oauth/callback", {
+        method: "POST",
+        body: JSON.stringify({
+          callbackUrl: openAICallbackInput.trim(),
+          sessionId: pendingOpenAIAuthSessionId,
+          state: pendingOpenAIAuthState,
+        }),
+      });
+      setOpenAIAccounts((current) => {
+        const rest = current.filter((item) => item.id !== payload.account.id);
+        return [payload.account, ...rest];
+      });
+      setPendingOpenAIAuthUrl("");
+      setPendingOpenAIAuthSessionId("");
+      setPendingOpenAIAuthState("");
+      setOpenAICallbackInput("");
+      setOpenAIMessage("OpenAI 账号已连接，后续可切换到内置 OpenAI OAuth 模式测试。");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "OpenAI 授权完成失败");
     } finally {
       setOpenAISaving(false);
     }
@@ -261,6 +310,25 @@ export function AdminClient() {
       setOpenAIMessage(status === "active" ? "OpenAI 账号已启用。" : "OpenAI 账号已禁用。更新 provider 后 Worker 会停止使用它。 ");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "OpenAI 账号状态更新失败");
+    } finally {
+      setOpenAISaving(false);
+    }
+  }
+
+  async function updateOpenAIProxy(proxyUrl: string | null): Promise<void> {
+    setOpenAISaving(true);
+    setOpenAIMessage("");
+    setError("");
+    try {
+      const payload = await apiJson<SettingsResponse>("/api/admin/settings", {
+        method: "PUT",
+        body: JSON.stringify({ openaiOAuthProxyUrl: proxyUrl }),
+      });
+      setSettings(payload.settings);
+      setOpenAIProxyUrl("");
+      setOpenAIMessage(proxyUrl === null ? "OpenAI OAuth 代理已清除。" : "OpenAI OAuth 代理已保存。");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "OpenAI OAuth 代理保存失败");
     } finally {
       setOpenAISaving(false);
     }
@@ -285,8 +353,6 @@ export function AdminClient() {
         registrationDefaultQuota?: number;
       } = {
         imageProvider,
-        sub2apiBaseUrl: baseUrl,
-        imageModel,
         imageConcurrency,
         siteTitle,
         siteSubtitle,
@@ -295,7 +361,12 @@ export function AdminClient() {
         registrationDefaultQuota,
       };
 
-      if (apiKey.trim()) {
+      if (!isOpenAIOAuthProvider) {
+        body.sub2apiBaseUrl = baseUrl;
+        body.imageModel = imageModel;
+      }
+
+      if (!isOpenAIOAuthProvider && apiKey.trim()) {
         body.sub2apiApiKey = apiKey.trim();
       }
 
@@ -838,10 +909,17 @@ export function AdminClient() {
                 <h2>站点与模型配置</h2>
                 <p>站点注册策略和模型服务端参数集中管理，密钥不会在页面或接口响应中回显。</p>
               </div>
-              <span className={clsx("badge", settings?.sub2apiApiKeyConfigured ? "success" : "danger")}>
-                <KeyRound size={13} aria-hidden="true" />
-                {settings?.sub2apiApiKeyConfigured ? "API Key 已配置" : "API Key 未配置"}
-              </span>
+              {isOpenAIOAuthProvider ? (
+                <span className="badge">
+                  <KeyRound size={13} aria-hidden="true" />
+                  OAuth 模式
+                </span>
+              ) : (
+                <span className={clsx("badge", settings?.sub2apiApiKeyConfigured ? "success" : "danger")}>
+                  <KeyRound size={13} aria-hidden="true" />
+                  {settings?.sub2apiApiKeyConfigured ? "API Key 已配置" : "API Key 未配置"}
+                </span>
+              )}
             </div>
             <div className="panel-body form-stack">
               <div className="field-row">
@@ -917,30 +995,50 @@ export function AdminClient() {
                   <option value="sub2api">sub2api / OpenAI-compatible API Key</option>
                   <option value="openai_oauth">内置 OpenAI OAuth（实验性）</option>
                 </select>
-                <small>OAuth 模式会优先使用下方已连接且启用的 OpenAI 账号；真实图片接口兼容性仍需在账号环境验证。</small>
+                <small>
+                  {isOpenAIOAuthProvider
+                    ? "OAuth 模式会优先使用下方已连接且启用的 OpenAI 账号，通过 Codex Responses 图片工具生成。"
+                    : "sub2api 模式使用服务端保存的 Base URL、模型和 API Key 调用图片接口。"}
+                </small>
               </div>
-              <div className="field-row">
-                <div className="field">
-                  <label htmlFor="sub2apiBaseUrl">Base URL</label>
-                  <input
-                    id="sub2apiBaseUrl"
-                    className="input"
-                    value={baseUrl}
-                    onChange={(event) => setBaseUrl(event.target.value)}
-                    placeholder="https://s2a.laolin.ai/v1"
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="imageModel">模型</label>
-                  <input
-                    id="imageModel"
-                    className="input"
-                    value={imageModel}
-                    onChange={(event) => setImageModel(event.target.value)}
-                    placeholder="gpt-image-2"
-                  />
-                </div>
-              </div>
+              {isOpenAIOAuthProvider ? null : (
+                <>
+                  <div className="field-row">
+                    <div className="field">
+                      <label htmlFor="sub2apiBaseUrl">Base URL</label>
+                      <input
+                        id="sub2apiBaseUrl"
+                        className="input"
+                        value={baseUrl}
+                        onChange={(event) => setBaseUrl(event.target.value)}
+                        placeholder="https://s2a.laolin.ai/v1"
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="imageModel">模型</label>
+                      <input
+                        id="imageModel"
+                        className="input"
+                        value={imageModel}
+                        onChange={(event) => setImageModel(event.target.value)}
+                        placeholder="gpt-image-2"
+                      />
+                    </div>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="sub2apiApiKey">API Key</label>
+                    <input
+                      id="sub2apiApiKey"
+                      className="input"
+                      type="password"
+                      value={apiKey}
+                      onChange={(event) => setApiKey(event.target.value)}
+                      placeholder={settings?.sub2apiApiKeyConfigured ? "留空表示不修改现有密钥" : "填写后保存"}
+                      autoComplete="off"
+                    />
+                  </div>
+                </>
+              )}
               <div className="field">
                 <label htmlFor="imageConcurrency">并发请求数</label>
                 <input
@@ -951,18 +1049,6 @@ export function AdminClient() {
                   max={8}
                   value={imageConcurrency}
                   onChange={(event) => setImageConcurrency(Number(event.target.value))}
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="sub2apiApiKey">API Key</label>
-                <input
-                  id="sub2apiApiKey"
-                  className="input"
-                  type="password"
-                  value={apiKey}
-                  onChange={(event) => setApiKey(event.target.value)}
-                  placeholder={settings?.sub2apiApiKeyConfigured ? "留空表示不修改现有密钥" : "填写后保存"}
-                  autoComplete="off"
                 />
               </div>
               <button className="button primary" type="button" onClick={saveSettings} disabled={settingsSaving}>
@@ -982,6 +1068,44 @@ export function AdminClient() {
               <span className="badge">实验性</span>
             </div>
             <div className="panel-body form-stack">
+              <div className="field">
+                <label htmlFor="openAIProxyUrl">OAuth 代理（可选）</label>
+                <input
+                  id="openAIProxyUrl"
+                  className="input"
+                  value={openAIProxyUrl}
+                  onChange={(event) => setOpenAIProxyUrl(event.target.value)}
+                  placeholder={
+                    settings?.openaiOAuthProxyConfigured
+                      ? `已配置：${settings.openaiOAuthProxyDisplay ?? "代理地址"}，留空不修改`
+                      : "http://127.0.0.1:7890 或 socks5://127.0.0.1:7890"
+                  }
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <small>
+                  支持 HTTP、HTTPS、SOCKS5、SOCKS5H，也兼容 socket5 写法。用于服务端交换 token、刷新 token 和 Codex 图片请求；带账号密码的代理不会回显明文。
+                </small>
+              </div>
+              <div className="button-row">
+                <button
+                  className="button"
+                  type="button"
+                  onClick={() => updateOpenAIProxy(openAIProxyUrl.trim())}
+                  disabled={openAISaving || !openAIProxyUrl.trim()}
+                >
+                  <Save size={16} aria-hidden="true" />
+                  保存代理
+                </button>
+                <button
+                  className="button"
+                  type="button"
+                  onClick={() => updateOpenAIProxy(null)}
+                  disabled={openAISaving || !settings?.openaiOAuthProxyConfigured}
+                >
+                  清除代理
+                </button>
+              </div>
               <div className="section-title-row">
                 <strong>已连接账号</strong>
                 <button className="button" type="button" onClick={loadAccounts} disabled={openAISaving}>
@@ -1027,13 +1151,37 @@ export function AdminClient() {
                 {openAISaving ? "处理中" : "连接 OpenAI 账号"}
               </button>
               {pendingOpenAIAuthUrl ? (
-                <a className="button" href={pendingOpenAIAuthUrl} target="_blank" rel="noreferrer">
-                  打开备用授权链接
-                </a>
+                <div className="oauth-callback-panel">
+                  <div className="section-title-row">
+                    <strong>完成授权</strong>
+                    <a className="button" href={pendingOpenAIAuthUrl} target="_blank" rel="noreferrer">
+                      打开备用授权链接
+                    </a>
+                  </div>
+                  <small>
+                    授权完成后，OpenAI 会跳到 localhost 回调地址。即使页面显示无法访问，也可以复制地址栏里的完整链接。
+                  </small>
+                  <textarea
+                    className="textarea oauth-callback-input"
+                    value={openAICallbackInput}
+                    onChange={(event) => setOpenAICallbackInput(event.target.value)}
+                    placeholder="http://localhost:1455/auth/callback?code=...&state=..."
+                  />
+                  <button
+                    className="button primary"
+                    type="button"
+                    onClick={completeOpenAIAccountAuth}
+                    disabled={openAISaving || !openAICallbackInput.trim()}
+                  >
+                    <ShieldCheck size={16} aria-hidden="true" />
+                    完成连接
+                  </button>
+                </div>
               ) : null}
               <small>
-                说明：该流程参考 Codex CLI OAuth + PKCE。若部署在服务器上，请设置固定回调地址并确保
-                OPENAI_OAUTH_TOKEN_ENCRYPTION_KEY 已配置。
+                说明：该流程参考 sub2api / Codex CLI OAuth + PKCE，默认使用 http://localhost:1455/auth/callback
+                回调。OAuth 登录只申请 Codex client 允许的基础 scope；图片生成会走 ChatGPT Codex Responses
+                图片工具桥接。请确保 OPENAI_OAUTH_TOKEN_ENCRYPTION_KEY 已配置。
               </small>
               <div className="toast-line">{openAIMessage}</div>
             </div>
@@ -1064,6 +1212,22 @@ export function AdminClient() {
         </>
     </>
   );
+}
+
+function getQueryParam(rawUrl: string, key: string): string {
+  try {
+    return new URL(rawUrl).searchParams.get(key) ?? "";
+  } catch {
+    const match = rawUrl.match(new RegExp(`[?&]${key}=([^&#]+)`));
+    if (!match?.[1]) {
+      return "";
+    }
+    try {
+      return decodeURIComponent(match[1].replaceAll("+", "%20"));
+    } catch {
+      return match[1];
+    }
+  }
 }
 
 function StatCard({ label, value, icon }: { label: string; value: number | string; icon: React.ReactNode }) {

@@ -27,6 +27,7 @@ export interface GenerationTaskRow {
   quantity: number;
   template_id: string | null;
   source_image_id: string | null;
+  reference_image_id: string | null;
   reference_strength: number;
   style_strength: number;
   cost_estimate: number;
@@ -177,6 +178,16 @@ export interface PublicImage {
   createdAt: string;
 }
 
+export interface PublicSourceImage {
+  id: string;
+  url: string;
+  width: number;
+  height: number;
+  originalName: string | null;
+  mimeType: string | null;
+  createdAt: string;
+}
+
 export interface PublicTask {
   id: string;
   userId: string | null;
@@ -189,6 +200,8 @@ export interface PublicTask {
   quantity: number;
   templateId: string | null;
   sourceImageId: string | null;
+  referenceImageId: string | null;
+  referenceImage: PublicSourceImage | null;
   referenceStrength: number;
   styleStrength: number;
   costEstimate: number;
@@ -207,6 +220,7 @@ export interface PublicConversationMessage {
   imageId: string | null;
   image: PublicImage | null;
   images: PublicImage[];
+  sourceImage: PublicSourceImage | null;
   createdAt: string;
 }
 
@@ -296,6 +310,8 @@ export interface PublicAdminSettings {
   imageProvider: ImageProvider;
   sub2apiApiKeyConfigured: boolean;
   sub2apiBaseUrl: string;
+  openaiOAuthProxyConfigured: boolean;
+  openaiOAuthProxyDisplay: string | null;
   imageModel: string;
   imageConcurrency: number;
   siteTitle: string;

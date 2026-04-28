@@ -2,8 +2,9 @@
 
 /* eslint-disable @next/next/no-img-element */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DragEvent } from "react";
+import type { ClipboardEvent, DragEvent } from "react";
 import {
+  ClipboardPaste,
   Copy,
   Download,
   ImagePlus,
@@ -25,6 +26,7 @@ import type {
   PublicConversation,
   PublicConversationMessage,
   PublicImage,
+  PublicSourceImage,
   PublicTask,
   PublicTemplate,
 } from "@/lib/types";
@@ -75,6 +77,10 @@ export function WorkbenchClient() {
   const [activeConversation, setActiveConversation] = useState<PublicConversation | null>(null);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [chatPrompt, setChatPrompt] = useState("");
+  const [chatSourceFile, setChatSourceFile] = useState<File | null>(null);
+  const [chatSourceImageId, setChatSourceImageId] = useState<string | null>(null);
+  const [chatSourcePreview, setChatSourcePreview] = useState<string | null>(null);
+  const [isDraggingChatSourceImage, setIsDraggingChatSourceImage] = useState(false);
   const [templates, setTemplates] = useState<PublicTemplate[]>([]);
   const [busy, setBusy] = useState(false);
   const [chatBusy, setChatBusy] = useState(false);
@@ -178,6 +184,32 @@ export function WorkbenchClient() {
     setSourcePreview(file ? URL.createObjectURL(file) : null);
   }
 
+  function handleChatSourceFileChange(file: File | null): void {
+    if (file && !isSupportedImageFile(file)) {
+      setError("仅支持 PNG、JPG 或 WEBP 图片");
+      return;
+    }
+    setError("");
+    setChatSourceFile(file);
+    setChatSourceImageId(null);
+    if (chatSourcePreview?.startsWith("blob:")) {
+      URL.revokeObjectURL(chatSourcePreview);
+    }
+    setChatSourcePreview(file ? URL.createObjectURL(file) : null);
+    if (file) {
+      setMessage("已添加会话参考图，本次继续改图会优先使用它。");
+    }
+  }
+
+  function clearChatSourceImage(): void {
+    if (chatSourcePreview?.startsWith("blob:")) {
+      URL.revokeObjectURL(chatSourcePreview);
+    }
+    setChatSourceFile(null);
+    setChatSourceImageId(null);
+    setChatSourcePreview(null);
+  }
+
   function getFirstImageFile(files: FileList | File[] | null): File | null {
     if (!files) {
       return null;
@@ -200,6 +232,32 @@ export function WorkbenchClient() {
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
     setIsDraggingSourceImage(true);
+  }
+
+  function handleChatSourceDrop(event: DragEvent<HTMLDivElement>): void {
+    event.preventDefault();
+    setIsDraggingChatSourceImage(false);
+    const file = getFirstImageFile(event.dataTransfer.files);
+    if (!file) {
+      setError("请拖入 PNG、JPG 或 WEBP 图片");
+      return;
+    }
+    handleChatSourceFileChange(file);
+  }
+
+  function handleChatSourceDragOver(event: DragEvent<HTMLDivElement>): void {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setIsDraggingChatSourceImage(true);
+  }
+
+  function handleChatSourcePaste(event: ClipboardEvent<HTMLDivElement>): void {
+    const file = getFirstImageFile(event.clipboardData.files);
+    if (!file) {
+      return;
+    }
+    event.preventDefault();
+    handleChatSourceFileChange(file);
   }
 
   async function handlePasteImage(): Promise<void> {
@@ -228,6 +286,31 @@ export function WorkbenchClient() {
     }
   }
 
+  async function handlePasteChatSourceImage(): Promise<void> {
+    if (!navigator.clipboard?.read) {
+      setError("当前浏览器不支持读取剪贴板图片，请使用拖拽或选择文件上传");
+      return;
+    }
+
+    try {
+      const clipboardItems = await navigator.clipboard.read();
+      for (const item of clipboardItems) {
+        const imageType = item.types.find((type) => type.startsWith("image/"));
+        if (!imageType) {
+          continue;
+        }
+        const blob = await item.getType(imageType);
+        const extension = imageType.split("/")[1] || "png";
+        const file = new File([blob], `chat-reference-${Date.now()}.${extension}`, { type: imageType });
+        handleChatSourceFileChange(file);
+        return;
+      }
+      setError("剪贴板里没有图片");
+    } catch {
+      setError("读取剪贴板失败，请确认浏览器权限，或改用拖拽/选择文件上传");
+    }
+  }
+
   useEffect(() => {
     return () => {
       if (sourcePreview?.startsWith("blob:")) {
@@ -235,6 +318,23 @@ export function WorkbenchClient() {
       }
     };
   }, [sourcePreview]);
+
+  useEffect(() => {
+    return () => {
+      if (chatSourcePreview?.startsWith("blob:")) {
+        URL.revokeObjectURL(chatSourcePreview);
+      }
+    };
+  }, [chatSourcePreview]);
+
+  async function uploadImageFile(file: File): Promise<{ imageId: string; url: string }> {
+    const formData = new FormData();
+    formData.append("image", file);
+    return apiJson<{ imageId: string; url: string }>("/api/source-images", {
+      method: "POST",
+      body: formData,
+    });
+  }
 
   async function uploadSourceIfNeeded(): Promise<string | null> {
     if (mode === "text_to_image") {
@@ -247,14 +347,23 @@ export function WorkbenchClient() {
       throw new Error("请先上传参考图");
     }
 
-    const formData = new FormData();
-    formData.append("image", sourceFile);
-    const payload = await apiJson<{ imageId: string; url: string }>("/api/source-images", {
-      method: "POST",
-      body: formData,
-    });
+    const payload = await uploadImageFile(sourceFile);
     setSourceImageId(payload.imageId);
     setSourcePreview(payload.url);
+    return payload.imageId;
+  }
+
+  async function uploadChatSourceIfNeeded(): Promise<string | null> {
+    if (chatSourceImageId) {
+      return chatSourceImageId;
+    }
+    if (!chatSourceFile) {
+      return null;
+    }
+
+    const payload = await uploadImageFile(chatSourceFile);
+    setChatSourceImageId(payload.imageId);
+    setChatSourcePreview(payload.url);
     return payload.imageId;
   }
 
@@ -420,12 +529,14 @@ export function WorkbenchClient() {
     setMessage("");
 
     try {
+      const referenceImageId = await uploadChatSourceIfNeeded();
       await apiJson<CreateTaskResponse>(`/api/conversations/${activeConversationId}/messages`, {
         method: "POST",
         body: JSON.stringify({
           prompt: chatPrompt,
           negativePrompt,
           sourceImageId: selectedImageId,
+          referenceImageId,
           size,
           quantity: 1,
           referenceStrength,
@@ -433,6 +544,7 @@ export function WorkbenchClient() {
         }),
       });
       setChatPrompt("");
+      clearChatSourceImage();
       setMessage("已在当前会话里提交新的改图任务。");
       await refreshConversations();
       await refreshActiveConversation();
@@ -464,6 +576,7 @@ export function WorkbenchClient() {
   function openConversation(conversationId: string): void {
     setActiveConversationId(conversationId);
     setSelectedImageId(null);
+    clearChatSourceImage();
     setError("");
     setMessage("");
   }
@@ -680,9 +793,18 @@ export function WorkbenchClient() {
                 chatBusy={chatBusy}
                 canContinue={Boolean(activeConversation.latestImage)}
                 selectedImageId={selectedImageId}
+                chatSourcePreview={chatSourcePreview}
+                isDraggingChatSourceImage={isDraggingChatSourceImage}
                 cancelingTaskId={cancelingTaskId}
                 retryingTaskId={retryingTaskId}
                 onChatPromptChange={setChatPrompt}
+                onChatSourceFileChange={handleChatSourceFileChange}
+                onChatSourceDrop={handleChatSourceDrop}
+                onChatSourceDragOver={handleChatSourceDragOver}
+                onChatSourceDragLeave={() => setIsDraggingChatSourceImage(false)}
+                onChatSourcePaste={handleChatSourcePaste}
+                onPasteChatSourceImage={handlePasteChatSourceImage}
+                onClearChatSourceImage={clearChatSourceImage}
                 onContinue={continueConversation}
                 onSelectImage={(image) => setSelectedImageId(image.id)}
                 onCancelTask={cancelTask}
@@ -761,9 +883,18 @@ function ConversationWindow({
   chatBusy,
   canContinue,
   selectedImageId,
+  chatSourcePreview,
+  isDraggingChatSourceImage,
   cancelingTaskId,
   retryingTaskId,
   onChatPromptChange,
+  onChatSourceFileChange,
+  onChatSourceDrop,
+  onChatSourceDragOver,
+  onChatSourceDragLeave,
+  onChatSourcePaste,
+  onPasteChatSourceImage,
+  onClearChatSourceImage,
   onContinue,
   onSelectImage,
   onCancelTask,
@@ -778,9 +909,18 @@ function ConversationWindow({
   chatBusy: boolean;
   canContinue: boolean;
   selectedImageId: string | null;
+  chatSourcePreview: string | null;
+  isDraggingChatSourceImage: boolean;
   cancelingTaskId: string | null;
   retryingTaskId: string | null;
   onChatPromptChange: (value: string) => void;
+  onChatSourceFileChange: (file: File | null) => void;
+  onChatSourceDrop: (event: DragEvent<HTMLDivElement>) => void;
+  onChatSourceDragOver: (event: DragEvent<HTMLDivElement>) => void;
+  onChatSourceDragLeave: () => void;
+  onChatSourcePaste: (event: ClipboardEvent<HTMLDivElement>) => void;
+  onPasteChatSourceImage: () => Promise<void>;
+  onClearChatSourceImage: () => void;
   onContinue: () => Promise<void>;
   onSelectImage: (image: PublicImage) => void;
   onCancelTask: (task: PublicTask) => Promise<void>;
@@ -790,6 +930,7 @@ function ConversationWindow({
   onEdit: (image: PublicImage) => void;
   onSaveTemplate: (image: PublicImage) => Promise<void>;
 }) {
+  const chatFileInputRef = useRef<HTMLInputElement | null>(null);
   const taskMap = useMemo(
     () => new Map((conversation.tasks ?? []).map((task) => [task.id, task])),
     [conversation.tasks],
@@ -830,7 +971,55 @@ function ConversationWindow({
         )}
       </div>
 
-      <div className="chat-composer">
+      <div
+        className={clsx("chat-composer", isDraggingChatSourceImage && "dragging")}
+        onDrop={onChatSourceDrop}
+        onDragOver={onChatSourceDragOver}
+        onDragEnter={onChatSourceDragOver}
+        onDragLeave={onChatSourceDragLeave}
+        onPaste={onChatSourcePaste}
+      >
+        <div className="chat-reference-strip">
+          {chatSourcePreview ? (
+            <div className="chat-reference-preview">
+              <img src={chatSourcePreview} alt="上传参考图" />
+              <span>额外参考图</span>
+              <button className="icon-button ghost" type="button" onClick={onClearChatSourceImage} aria-label="移除参考图">
+                <X size={14} aria-hidden="true" />
+              </button>
+            </div>
+          ) : (
+            <button
+              className="button subtle chat-upload-button"
+              type="button"
+              onClick={() => chatFileInputRef.current?.click()}
+              disabled={!canContinue || chatBusy}
+            >
+              <Upload size={15} aria-hidden="true" />
+              添加参考图
+            </button>
+          )}
+          <button
+            className="icon-button"
+            type="button"
+            onClick={onPasteChatSourceImage}
+            disabled={!canContinue || chatBusy}
+            title="粘贴参考图"
+          >
+            <ClipboardPaste size={15} aria-hidden="true" />
+          </button>
+          <small>{selectedImageId ? "主图：当前选中的生成结果" : "主图：当前会话最新生成结果"}</small>
+          <input
+            ref={chatFileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            hidden
+            onChange={(event) => {
+              onChatSourceFileChange(event.target.files?.[0] ?? null);
+              event.currentTarget.value = "";
+            }}
+          />
+        </div>
         <textarea
           className="textarea"
           value={chatPrompt}
@@ -927,6 +1116,8 @@ function ConversationMessageItem({
           ) : null}
         </div>
         <p>{displayMessageContent(message.content)}</p>
+        {isUser && task?.referenceImage ? <SourceReferencePreview image={task.referenceImage} /> : null}
+        {isUser && message.sourceImage ? <SourceReferencePreview image={message.sourceImage} /> : null}
         {shouldShowTaskError ? <small className="toast-line error">{compactErrorMessage(task.errorMessage)}</small> : null}
         {images.length > 1 ? (
           <div className="message-image-grid">
@@ -1012,6 +1203,18 @@ function ImageCard({
         </div>
       </div>
     </article>
+  );
+}
+
+function SourceReferencePreview({ image }: { image: PublicSourceImage }) {
+  return (
+    <div className="message-reference-card">
+      <img src={image.url} alt={image.originalName ?? "参考图"} />
+      <div>
+        <span>额外参考图</span>
+        <small>{image.originalName ?? image.mimeType ?? "上传图片"}</small>
+      </div>
+    </div>
   );
 }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPublicAdminSettings, getUserGroup, setAppSetting } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
 import { handleRouteError, jsonError } from "@/lib/http";
+import { normalizeProxyUrl } from "@/lib/proxy";
 import { updateAdminSettingsSchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -29,6 +30,14 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     }
     if (input.sub2apiBaseUrl) {
       setAppSetting("sub2api_base_url", input.sub2apiBaseUrl.replace(/\/+$/, ""));
+    }
+    if (Object.prototype.hasOwnProperty.call(input, "openaiOAuthProxyUrl")) {
+      try {
+        const proxyUrl = input.openaiOAuthProxyUrl === null ? "" : normalizeProxyUrl(input.openaiOAuthProxyUrl);
+        setAppSetting("openai_oauth_proxy_url", proxyUrl);
+      } catch (error) {
+        return jsonError(error instanceof Error ? error.message : "代理地址不正确", 400);
+      }
     }
     if (input.imageModel) {
       setAppSetting("image_model", input.imageModel);

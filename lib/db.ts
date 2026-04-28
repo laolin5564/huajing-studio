@@ -4,6 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { appConfig, PUBLIC_FILE_PREFIX } from "./config";
 import { normalizeImageSizeOption } from "./image-options";
+import { normalizeProxyUrl, redactProxyUrl } from "./proxy";
 import type {
   AdminStats,
   ConversationMessageRow,
@@ -20,6 +21,7 @@ import type {
   PublicConversationMessage,
   PublicImage,
   PublicTask,
+  PublicSourceImage,
   PublicOpenAIOAuthAccount,
   PublicTemplate,
   PublicUser,
@@ -46,6 +48,7 @@ export interface CreateTaskInput {
   quantity: number;
   templateId: string | null;
   sourceImageId: string | null;
+  referenceImageId?: string | null;
   referenceStrength: number;
   styleStrength: number;
 }
@@ -111,6 +114,7 @@ type AppSettingKey =
   | "image_provider"
   | "sub2api_api_key"
   | "sub2api_base_url"
+  | "openai_oauth_proxy_url"
   | "image_model"
   | "image_concurrency"
   | "site_title"
@@ -266,6 +270,7 @@ function initializeSchema(database: DatabaseSync): void {
       quantity INTEGER NOT NULL CHECK (quantity IN (1, 2, 4)),
       template_id TEXT,
       source_image_id TEXT,
+      reference_image_id TEXT,
       reference_strength REAL NOT NULL DEFAULT 0.6,
       style_strength REAL NOT NULL DEFAULT 0.7,
       cost_estimate REAL NOT NULL DEFAULT 0,
@@ -446,6 +451,7 @@ function initializeSchema(database: DatabaseSync): void {
   `);
   ensureColumn(database, "generation_tasks", "user_id", "TEXT");
   ensureColumn(database, "generation_tasks", "conversation_id", "TEXT");
+  ensureColumn(database, "generation_tasks", "reference_image_id", "TEXT");
   ensureColumn(database, "source_images", "user_id", "TEXT");
   ensureColumn(database, "conversations", "user_id", "TEXT");
   ensureColumn(database, "users", "monthly_quota", "INTEGER");
@@ -900,6 +906,7 @@ export function getRuntimeImageSettings(): {
   imageProvider: ImageProvider;
   sub2apiApiKey: string;
   sub2apiBaseUrl: string;
+  openaiOAuthProxyUrl: string;
   imageModel: string;
   imageConcurrency: number;
 } {
@@ -909,6 +916,7 @@ export function getRuntimeImageSettings(): {
     imageProvider: provider === "openai_oauth" ? "openai_oauth" : "sub2api",
     sub2apiApiKey: getAppSetting("sub2api_api_key") || appConfig.sub2apiApiKey,
     sub2apiBaseUrl: getAppSetting("sub2api_base_url") || appConfig.sub2apiBaseUrl,
+    openaiOAuthProxyUrl: normalizeProxyUrl(getAppSetting("openai_oauth_proxy_url")),
     imageModel: getAppSetting("image_model") || appConfig.imageModel,
     imageConcurrency: Number.isFinite(concurrency) ? Math.min(Math.max(Math.floor(concurrency), 1), 8) : 2,
   };
@@ -957,6 +965,8 @@ export function getPublicAdminSettings(): PublicAdminSettings {
     imageProvider: settings.imageProvider,
     sub2apiApiKeyConfigured: settings.sub2apiApiKey.length > 0,
     sub2apiBaseUrl: settings.sub2apiBaseUrl,
+    openaiOAuthProxyConfigured: settings.openaiOAuthProxyUrl.length > 0,
+    openaiOAuthProxyDisplay: redactProxyUrl(settings.openaiOAuthProxyUrl),
     imageModel: settings.imageModel,
     imageConcurrency: settings.imageConcurrency,
     siteTitle: site.siteTitle,
@@ -1159,9 +1169,9 @@ export function createGenerationTask(input: CreateTaskInput): GenerationTaskRow 
         `
         INSERT INTO generation_tasks (
           id, user_id, conversation_id, mode, status, prompt, negative_prompt, size, quantity, template_id,
-          source_image_id, reference_strength, style_strength, cost_estimate,
+          source_image_id, reference_image_id, reference_strength, style_strength, cost_estimate,
           error_message, created_at, started_at, completed_at
-        ) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL)
+        ) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL)
       `,
       )
       .run(
@@ -1175,6 +1185,7 @@ export function createGenerationTask(input: CreateTaskInput): GenerationTaskRow 
         input.quantity,
         input.templateId,
         input.sourceImageId,
+        input.referenceImageId ?? null,
         input.referenceStrength,
         input.styleStrength,
         costEstimate,
@@ -1747,6 +1758,8 @@ export function toPublicTask(row: GenerationTaskRow, images: GeneratedImageRow[]
     quantity: row.quantity,
     templateId: row.template_id,
     sourceImageId: row.source_image_id,
+    referenceImageId: row.reference_image_id,
+    referenceImage: row.reference_image_id ? toPublicReferenceImage(row.reference_image_id) : null,
     referenceStrength: row.reference_strength,
     styleStrength: row.style_strength,
     costEstimate: row.cost_estimate,
@@ -1755,6 +1768,26 @@ export function toPublicTask(row: GenerationTaskRow, images: GeneratedImageRow[]
     startedAt: row.started_at,
     completedAt: row.completed_at,
     images: images.map((image) => toPublicImage({ ...image, template_name: null })),
+  };
+}
+
+function toPublicReferenceImage(id: string): PublicSourceImage | null {
+  const source = getSourceImage(id);
+  if (source) {
+    return toPublicSourceImage(source);
+  }
+  const generated = getGeneratedImage(id);
+  if (!generated) {
+    return null;
+  }
+  return {
+    id: generated.id,
+    url: imagePublicUrl(generated.file_path),
+    width: generated.width,
+    height: generated.height,
+    originalName: null,
+    mimeType: null,
+    createdAt: generated.created_at,
   };
 }
 
@@ -1787,6 +1820,7 @@ export function toPublicConversationMessage(
   imageMap?: Map<string, GeneratedImageRow>,
 ): PublicConversationMessage {
   const image = row.image_id ? imageMap?.get(row.image_id) ?? getGeneratedImage(row.image_id) : null;
+  const sourceImage = !image && row.image_id ? getSourceImage(row.image_id) : null;
   const shouldAttachTaskImages =
     !image && row.role === "assistant" && row.task_id
       ? getGenerationTask(row.task_id)?.status === "succeeded"
@@ -1804,6 +1838,19 @@ export function toPublicConversationMessage(
     imageId: row.image_id,
     image: images[0] ?? null,
     images,
+    sourceImage: sourceImage ? toPublicSourceImage(sourceImage) : null,
+    createdAt: row.created_at,
+  };
+}
+
+export function toPublicSourceImage(row: SourceImageRow): PublicSourceImage {
+  return {
+    id: row.id,
+    url: imagePublicUrl(row.file_path),
+    width: row.width,
+    height: row.height,
+    originalName: row.original_name,
+    mimeType: row.mime_type,
     createdAt: row.created_at,
   };
 }

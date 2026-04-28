@@ -86,7 +86,6 @@ WEB_UPDATE_LOCK_FILE=/tmp/huajing-studio-web-update.lock
 OPENAI_OAUTH_TOKEN_ENCRYPTION_KEY=
 OPENAI_OAUTH_REDIRECT_URI=
 OPENAI_OAUTH_CLIENT_ID=
-OPENAI_OAUTH_API_BASE_URL=https://api.openai.com/v1
 ```
 
 说明：
@@ -103,9 +102,9 @@ OPENAI_OAUTH_API_BASE_URL=https://api.openai.com/v1
 - `WEB_UPDATE_REPO_DIR`：Web 一键更新执行目录。宿主机执行可用项目目录；Docker 内执行时必须是宿主机 Git 项目的相同绝对路径，不能指向 `/app` 镜像目录。
 - `WEB_UPDATE_LOCK_FILE`：Web 一键更新脚本锁文件路径，默认 `/tmp/huajing-studio-web-update.lock`。
 - `OPENAI_OAUTH_TOKEN_ENCRYPTION_KEY`：内置 OpenAI OAuth 模式必填，用于 AES-256-GCM 加密保存 access token / refresh token。建议使用 32 字节以上随机字符串，或 `base64:` 前缀的 32 字节 key。
-- `OPENAI_OAUTH_REDIRECT_URI`：可选，固定 OAuth 回调地址；不填时按当前访问域名拼出 `/api/admin/openai-accounts/oauth/callback`。
+- `OPENAI_OAUTH_REDIRECT_URI`：可选，固定 OAuth 回调地址；不填时使用 Codex CLI / sub2api 兼容的 `http://localhost:1455/auth/callback`，授权后复制浏览器地址栏回调链接回后台完成连接。
 - `OPENAI_OAUTH_CLIENT_ID`：可选，默认使用参考 Codex CLI 的 OpenAI OAuth client_id；如果上游流程变更可覆盖。
-- `OPENAI_OAUTH_API_BASE_URL`：OAuth 模式下调用图片接口的 OpenAI-compatible Base URL，默认 `https://api.openai.com/v1`。
+- OpenAI OAuth 代理：在管理员后台「OpenAI 账号连接」里配置，支持 `http://`、`https://`、`socks5://`、`socks5h://`，也兼容 `socket5://` 写法，用于服务端交换 token、刷新 token 和 Codex 图片请求。带账号密码的代理地址只会脱敏展示。
 
 
 ## 架构与维护边界
@@ -140,15 +139,17 @@ OPENAI_OAUTH_API_BASE_URL=https://api.openai.com/v1
 当前实现参考 sub2api 的 Codex CLI OAuth + PKCE 流程：
 
 - 服务端生成 state / code_verifier / code_challenge，并发起 OpenAI OAuth 授权。
-- 回调接口交换 access token / refresh token。
+- 默认使用 `http://localhost:1455/auth/callback` 回调；授权后把浏览器地址栏里的 `code` / `state` 回调链接粘贴回后台，由回调接口交换 access token / refresh token。
+- 授权请求只使用 Codex OAuth client 允许的基础 scope；图片生成参考 sub2api 的方式，把 `/v1/images/*` 请求转换为 ChatGPT Codex `/backend-api/codex/responses` + `image_generation` tool。
 - SQLite 保存账号、邮箱、组织、套餐、token 到期时间和状态。
 - access token / refresh token 使用 `OPENAI_OAUTH_TOKEN_ENCRYPTION_KEY` 加密存储。
 - Worker 调用前会自动刷新快过期 token；刷新失败会把账号标记为异常。
+- 如服务器访问 OpenAI 或 ChatGPT 不稳定，可在管理员后台为内置 OAuth 连接器配置 HTTP / SOCKS5 代理；该代理只用于服务端 OAuth token 与 Codex 图片请求。
 
 限制与注意：
 
 - 这是非官方/实验性流程，不承诺长期稳定；OpenAI 登录流程、账号风控、接口权限和图片模型可用性都可能随上游变化失效。
-- OAuth access token 是否可直接调用 `OPENAI_OAUTH_API_BASE_URL` 的图片接口，取决于 OpenAI 当前策略；如果失败，请切回默认 sub2api API Key 模式。
+- OAuth 图片生成走 ChatGPT Codex 内部 Responses 通道，而不是官方 Platform `/v1/images/generations` scope；如果上游返回风控、限流或权限错误，请切回默认 sub2api API Key 模式。
 - 生产部署建议设置固定 `OPENAI_OAUTH_REDIRECT_URI`，并妥善保存 `OPENAI_OAUTH_TOKEN_ENCRYPTION_KEY`；丢失该 key 后，历史 token 无法解密，需要重新连接账号。
 
 ## Docker 部署
