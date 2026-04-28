@@ -10,6 +10,9 @@ export type TemplateCategory = (typeof templateCategories)[number];
 export const userRoles = ["admin", "member"] as const;
 export type UserRole = (typeof userRoles)[number];
 
+export const imageProviders = ["sub2api", "openai_oauth"] as const;
+export type ImageProvider = (typeof imageProviders)[number];
+
 export type DbValue = string | number | null;
 
 export interface GenerationTaskRow {
@@ -115,6 +118,50 @@ export interface SessionRow {
   token_hash: string;
   expires_at: string;
   created_at: string;
+}
+
+export type OpenAIOAuthAccountStatus = "active" | "error" | "disabled";
+
+export interface OpenAIOAuthAccountRow {
+  id: string;
+  email: string | null;
+  account_id: string | null;
+  user_id: string | null;
+  organization_id: string | null;
+  plan_type: string | null;
+  client_id: string;
+  access_token_ciphertext: string;
+  refresh_token_ciphertext: string;
+  expires_at: string;
+  status: OpenAIOAuthAccountStatus;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OpenAIOAuthSessionRow {
+  id: string;
+  state: string;
+  code_verifier: string;
+  redirect_uri: string;
+  client_id: string;
+  expires_at: string;
+  created_at: string;
+}
+
+export interface PublicOpenAIOAuthAccount {
+  id: string;
+  email: string | null;
+  accountId: string | null;
+  userId: string | null;
+  organizationId: string | null;
+  planType: string | null;
+  clientId: string;
+  expiresAt: string;
+  status: OpenAIOAuthAccountStatus;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface PublicImage {
@@ -246,6 +293,7 @@ export interface AdminStats {
 }
 
 export interface PublicAdminSettings {
+  imageProvider: ImageProvider;
   sub2apiApiKeyConfigured: boolean;
   sub2apiBaseUrl: string;
   imageModel: string;

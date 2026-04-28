@@ -32,6 +32,10 @@ export const appConfig = {
   imageRequestTimeoutMs: readNumberEnv("IMAGE_REQUEST_TIMEOUT_MS", 300_000),
   workerPollIntervalMs: readNumberEnv("WORKER_POLL_INTERVAL_MS", 3_000),
   costPerImage: readNumberEnv("COST_PER_IMAGE", 0.04),
+  openaiOAuthApiBaseUrl: process.env.OPENAI_OAUTH_API_BASE_URL || "https://api.openai.com/v1",
+  openaiOAuthClientId: process.env.OPENAI_OAUTH_CLIENT_ID || "",
+  openaiOAuthRedirectUri: process.env.OPENAI_OAUTH_REDIRECT_URI || "",
+  openaiOAuthTokenEncryptionKey: process.env.OPENAI_OAUTH_TOKEN_ENCRYPTION_KEY || "",
 };
 
 export const IMAGE_USER_AGENT =

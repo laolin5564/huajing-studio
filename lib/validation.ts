@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { sizeOptions } from "./image-options";
-import { generationModes, taskStatuses, templateCategories, userRoles } from "./types";
+import { generationModes, imageProviders, taskStatuses, templateCategories, userRoles } from "./types";
 
 const nullableString = z
   .union([z.string(), z.null(), z.undefined()])
@@ -87,6 +87,7 @@ export const createTemplateFromImageSchema = z.object({
 });
 
 export const updateAdminSettingsSchema = z.object({
+  imageProvider: z.enum(imageProviders).optional(),
   sub2apiApiKey: z.string().trim().min(1).max(500).optional(),
   sub2apiBaseUrl: z.string().trim().url().max(300).optional(),
   imageModel: z.string().trim().min(1).max(100).optional(),
@@ -96,6 +97,16 @@ export const updateAdminSettingsSchema = z.object({
   registrationEnabled: z.boolean().optional(),
   registrationDefaultGroupId: z.string().trim().min(1).optional(),
   registrationDefaultQuota: z.coerce.number().int().min(0).max(100000).optional(),
+});
+
+export const openAIOAuthExchangeSchema = z.object({
+  sessionId: z.string().trim().min(1),
+  code: z.string().trim().min(1),
+  state: z.string().trim().min(1),
+});
+
+export const openAIOAuthStatusSchema = z.object({
+  status: z.enum(["active", "disabled"]),
 });
 
 export const continueConversationSchema = z.object({

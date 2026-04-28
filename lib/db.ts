@@ -11,11 +11,16 @@ import type {
   GenerationMode,
   GenerationTaskRow,
   GeneratedImageRow,
+  ImageProvider,
+  OpenAIOAuthAccountRow,
+  OpenAIOAuthAccountStatus,
+  OpenAIOAuthSessionRow,
   PublicAdminSettings,
   PublicConversation,
   PublicConversationMessage,
   PublicImage,
   PublicTask,
+  PublicOpenAIOAuthAccount,
   PublicTemplate,
   PublicUser,
   PublicUserGroup,
@@ -103,6 +108,7 @@ export interface UpdateUserInput {
 }
 
 type AppSettingKey =
+  | "image_provider"
   | "sub2api_api_key"
   | "sub2api_base_url"
   | "image_model"
@@ -401,6 +407,42 @@ function initializeSchema(database: DatabaseSync): void {
 
     CREATE INDEX IF NOT EXISTS idx_sessions_token
       ON sessions (token_hash);
+
+    CREATE TABLE IF NOT EXISTS openai_oauth_accounts (
+      id TEXT PRIMARY KEY,
+      email TEXT,
+      account_id TEXT,
+      user_id TEXT,
+      organization_id TEXT,
+      plan_type TEXT,
+      client_id TEXT NOT NULL,
+      access_token_ciphertext TEXT NOT NULL,
+      refresh_token_ciphertext TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('active', 'error', 'disabled')),
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_openai_oauth_accounts_status
+      ON openai_oauth_accounts (status, expires_at);
+
+    CREATE INDEX IF NOT EXISTS idx_openai_oauth_accounts_account
+      ON openai_oauth_accounts (account_id);
+
+    CREATE TABLE IF NOT EXISTS openai_oauth_sessions (
+      id TEXT PRIMARY KEY,
+      state TEXT NOT NULL,
+      code_verifier TEXT NOT NULL,
+      redirect_uri TEXT NOT NULL,
+      client_id TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_openai_oauth_sessions_expires
+      ON openai_oauth_sessions (expires_at);
   `);
   ensureColumn(database, "generation_tasks", "user_id", "TEXT");
   ensureColumn(database, "generation_tasks", "conversation_id", "TEXT");
@@ -659,14 +701,212 @@ export function setAppSetting(key: AppSettingKey, value: string): void {
     .run(key, value, nowIso());
 }
 
+export function createOpenAIOAuthSession(input: {
+  state: string;
+  codeVerifier: string;
+  redirectUri: string;
+  clientId: string;
+  expiresAt: string;
+}): OpenAIOAuthSessionRow {
+  const id = createId("oaise");
+  const createdAt = nowIso();
+  getDb()
+    .prepare(
+      `
+      INSERT INTO openai_oauth_sessions (id, state, code_verifier, redirect_uri, client_id, expires_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `,
+    )
+    .run(id, input.state, input.codeVerifier, input.redirectUri, input.clientId, input.expiresAt, createdAt);
+  const session = getOpenAIOAuthSession(id);
+  if (!session) {
+    throw new Error("OpenAI OAuth 会话创建失败");
+  }
+  return session;
+}
+
+export function getOpenAIOAuthSession(id: string): OpenAIOAuthSessionRow | null {
+  return castRow<OpenAIOAuthSessionRow>(
+    getDb()
+      .prepare("SELECT * FROM openai_oauth_sessions WHERE id = ? AND expires_at > ? LIMIT 1")
+      .get(id, nowIso()),
+  );
+}
+
+export function getOpenAIOAuthSessionByState(state: string): OpenAIOAuthSessionRow | null {
+  return castRow<OpenAIOAuthSessionRow>(
+    getDb()
+      .prepare("SELECT * FROM openai_oauth_sessions WHERE state = ? AND expires_at > ? LIMIT 1")
+      .get(state, nowIso()),
+  );
+}
+
+export function deleteOpenAIOAuthSession(id: string): void {
+  getDb().prepare("DELETE FROM openai_oauth_sessions WHERE id = ?").run(id);
+}
+
+export function deleteExpiredOpenAIOAuthSessions(): void {
+  getDb().prepare("DELETE FROM openai_oauth_sessions WHERE expires_at <= ?").run(nowIso());
+}
+
+export function listOpenAIOAuthAccounts(): OpenAIOAuthAccountRow[] {
+  return castRows<OpenAIOAuthAccountRow>(
+    getDb().prepare("SELECT * FROM openai_oauth_accounts ORDER BY updated_at DESC LIMIT 50").all(),
+  );
+}
+
+export function getOpenAIOAuthAccount(id: string): OpenAIOAuthAccountRow | null {
+  return castRow<OpenAIOAuthAccountRow>(
+    getDb().prepare("SELECT * FROM openai_oauth_accounts WHERE id = ? LIMIT 1").get(id),
+  );
+}
+
+export function getUsableOpenAIOAuthAccount(): OpenAIOAuthAccountRow | null {
+  return castRow<OpenAIOAuthAccountRow>(
+    getDb()
+      .prepare("SELECT * FROM openai_oauth_accounts WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1")
+      .get(),
+  );
+}
+
+export function upsertOpenAIOAuthAccount(input: {
+  email: string | null;
+  accountId: string | null;
+  userId: string | null;
+  organizationId: string | null;
+  planType: string | null;
+  clientId: string;
+  accessTokenCiphertext: string;
+  refreshTokenCiphertext: string;
+  expiresAt: string;
+}): OpenAIOAuthAccountRow {
+  const existing = input.accountId
+    ? castRow<{ id: string }>(
+        getDb().prepare("SELECT id FROM openai_oauth_accounts WHERE account_id = ? LIMIT 1").get(input.accountId),
+      )
+    : null;
+  const id = existing?.id ?? createId("oaia");
+  const now = nowIso();
+  getDb()
+    .prepare(
+      `
+      INSERT INTO openai_oauth_accounts (
+        id, email, account_id, user_id, organization_id, plan_type, client_id,
+        access_token_ciphertext, refresh_token_ciphertext, expires_at, status, last_error, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        email = excluded.email,
+        account_id = excluded.account_id,
+        user_id = excluded.user_id,
+        organization_id = excluded.organization_id,
+        plan_type = excluded.plan_type,
+        client_id = excluded.client_id,
+        access_token_ciphertext = excluded.access_token_ciphertext,
+        refresh_token_ciphertext = excluded.refresh_token_ciphertext,
+        expires_at = excluded.expires_at,
+        status = 'active',
+        last_error = NULL,
+        updated_at = excluded.updated_at
+    `,
+    )
+    .run(
+      id,
+      input.email,
+      input.accountId,
+      input.userId,
+      input.organizationId,
+      input.planType,
+      input.clientId,
+      input.accessTokenCiphertext,
+      input.refreshTokenCiphertext,
+      input.expiresAt,
+      now,
+      now,
+    );
+
+  const account = getOpenAIOAuthAccount(id);
+  if (!account) {
+    throw new Error("OpenAI OAuth 账号保存失败");
+  }
+  return account;
+}
+
+export function updateOpenAIOAuthAccountTokens(
+  id: string,
+  input: {
+    accessTokenCiphertext: string;
+    refreshTokenCiphertext: string;
+    expiresAt: string;
+    email?: string | null;
+    accountId?: string | null;
+    userId?: string | null;
+    organizationId?: string | null;
+    planType?: string | null;
+  },
+): void {
+  getDb()
+    .prepare(
+      `
+      UPDATE openai_oauth_accounts
+      SET access_token_ciphertext = ?, refresh_token_ciphertext = ?, expires_at = ?,
+        email = COALESCE(?, email), account_id = COALESCE(?, account_id), user_id = COALESCE(?, user_id),
+        organization_id = COALESCE(?, organization_id), plan_type = COALESCE(?, plan_type),
+        status = 'active', last_error = NULL, updated_at = ?
+      WHERE id = ?
+    `,
+    )
+    .run(
+      input.accessTokenCiphertext,
+      input.refreshTokenCiphertext,
+      input.expiresAt,
+      input.email ?? null,
+      input.accountId ?? null,
+      input.userId ?? null,
+      input.organizationId ?? null,
+      input.planType ?? null,
+      nowIso(),
+      id,
+    );
+}
+
+export function updateOpenAIOAuthAccountStatus(
+  id: string,
+  status: OpenAIOAuthAccountStatus,
+  lastError: string | null,
+): void {
+  getDb()
+    .prepare("UPDATE openai_oauth_accounts SET status = ?, last_error = ?, updated_at = ? WHERE id = ?")
+    .run(status, lastError?.slice(0, 500) ?? null, nowIso(), id);
+}
+
+export function toPublicOpenAIOAuthAccount(row: OpenAIOAuthAccountRow): PublicOpenAIOAuthAccount {
+  return {
+    id: row.id,
+    email: row.email,
+    accountId: row.account_id,
+    userId: row.user_id,
+    organizationId: row.organization_id,
+    planType: row.plan_type,
+    clientId: row.client_id,
+    expiresAt: row.expires_at,
+    status: row.status,
+    lastError: row.last_error,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 export function getRuntimeImageSettings(): {
+  imageProvider: ImageProvider;
   sub2apiApiKey: string;
   sub2apiBaseUrl: string;
   imageModel: string;
   imageConcurrency: number;
 } {
   const concurrency = Number(getAppSetting("image_concurrency") ?? 2);
+  const provider = getAppSetting("image_provider");
   return {
+    imageProvider: provider === "openai_oauth" ? "openai_oauth" : "sub2api",
     sub2apiApiKey: getAppSetting("sub2api_api_key") || appConfig.sub2apiApiKey,
     sub2apiBaseUrl: getAppSetting("sub2api_base_url") || appConfig.sub2apiBaseUrl,
     imageModel: getAppSetting("image_model") || appConfig.imageModel,
@@ -714,6 +954,7 @@ export function getPublicAdminSettings(): PublicAdminSettings {
   const site = getPublicSiteSettings();
   const registration = getRegistrationSettings();
   return {
+    imageProvider: settings.imageProvider,
     sub2apiApiKeyConfigured: settings.sub2apiApiKey.length > 0,
     sub2apiBaseUrl: settings.sub2apiBaseUrl,
     imageModel: settings.imageModel,

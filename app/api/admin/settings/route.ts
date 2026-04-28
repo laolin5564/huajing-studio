@@ -21,6 +21,9 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     requireAdmin(request);
     const input = updateAdminSettingsSchema.parse(await request.json());
 
+    if (input.imageProvider) {
+      setAppSetting("image_provider", input.imageProvider);
+    }
     if (input.sub2apiApiKey) {
       setAppSetting("sub2api_api_key", input.sub2apiApiKey);
     }

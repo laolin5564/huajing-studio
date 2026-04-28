@@ -13,7 +13,7 @@ import {
   Users,
 } from "lucide-react";
 import clsx from "clsx";
-import type { AdminStats, PublicAdminSettings, PublicUser, PublicUserGroup } from "@/lib/types";
+import type { AdminStats, ImageProvider, PublicAdminSettings, PublicOpenAIOAuthAccount, PublicUser, PublicUserGroup } from "@/lib/types";
 import { apiJson } from "@/components/client-api";
 
 interface StatsResponse {
@@ -36,6 +36,22 @@ interface UsersResponse {
   users: PublicUser[];
 }
 
+interface OpenAIOAuthAccountsResponse {
+  accounts: PublicOpenAIOAuthAccount[];
+}
+
+interface OpenAIOAuthStartResponse {
+  authUrl: string;
+  sessionId: string;
+  redirectUri: string;
+  expiresAt: string;
+  experimental: boolean;
+}
+
+interface OpenAIOAuthAccountResponse {
+  account: PublicOpenAIOAuthAccount;
+}
+
 interface UserResponse {
   user: PublicUser;
 }
@@ -44,6 +60,7 @@ export function AdminClient() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [settings, setSettings] = useState<PublicAdminSettings | null>(null);
   const [apiKey, setApiKey] = useState("");
+  const [imageProvider, setImageProvider] = useState<ImageProvider>("sub2api");
   const [baseUrl, setBaseUrl] = useState("");
   const [imageModel, setImageModel] = useState("");
   const [imageConcurrency, setImageConcurrency] = useState(2);
@@ -54,6 +71,7 @@ export function AdminClient() {
   const [registrationDefaultQuota, setRegistrationDefaultQuota] = useState(100);
   const [groups, setGroups] = useState<PublicUserGroup[]>([]);
   const [users, setUsers] = useState<PublicUser[]>([]);
+  const [openAIAccounts, setOpenAIAccounts] = useState<PublicOpenAIOAuthAccount[]>([]);
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupQuota, setNewGroupQuota] = useState(100);
   const [newUserEmail, setNewUserEmail] = useState("");
@@ -65,9 +83,11 @@ export function AdminClient() {
   const [error, setError] = useState("");
   const [settingsMessage, setSettingsMessage] = useState("");
   const [accountMessage, setAccountMessage] = useState("");
+  const [openAIMessage, setOpenAIMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [accountsSaving, setAccountsSaving] = useState(false);
+  const [openAISaving, setOpenAISaving] = useState(false);
 
   async function loadStats(): Promise<void> {
     setLoading(true);
@@ -85,6 +105,7 @@ export function AdminClient() {
   async function loadSettings(): Promise<void> {
     const payload = await apiJson<SettingsResponse>("/api/admin/settings");
     setSettings(payload.settings);
+    setImageProvider(payload.settings.imageProvider);
     setBaseUrl(payload.settings.sub2apiBaseUrl);
     setImageModel(payload.settings.imageModel);
     setImageConcurrency(payload.settings.imageConcurrency);
@@ -98,12 +119,50 @@ export function AdminClient() {
   }
 
   async function loadAccounts(): Promise<void> {
-    const [groupsPayload, usersPayload] = await Promise.all([
+    const [groupsPayload, usersPayload, openAIPayload] = await Promise.all([
       apiJson<GroupsResponse>("/api/admin/groups"),
       apiJson<UsersResponse>("/api/admin/users"),
+      apiJson<OpenAIOAuthAccountsResponse>("/api/admin/openai-accounts"),
     ]);
     setGroups(groupsPayload.groups);
     setUsers(usersPayload.users);
+    setOpenAIAccounts(openAIPayload.accounts);
+  }
+
+  async function connectOpenAIAccount(): Promise<void> {
+    setOpenAISaving(true);
+    setOpenAIMessage("");
+    setError("");
+    try {
+      const payload = await apiJson<OpenAIOAuthStartResponse>("/api/admin/openai-accounts", {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      window.open(payload.authUrl, "_blank", "noopener,noreferrer");
+      setOpenAIMessage("已打开 OpenAI 授权页。授权完成后回到这里刷新账号列表。");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "OpenAI 授权发起失败");
+    } finally {
+      setOpenAISaving(false);
+    }
+  }
+
+  async function setOpenAIAccountStatus(account: PublicOpenAIOAuthAccount, status: "active" | "disabled"): Promise<void> {
+    setOpenAISaving(true);
+    setOpenAIMessage("");
+    setError("");
+    try {
+      const payload = await apiJson<OpenAIOAuthAccountResponse>(`/api/admin/openai-accounts/${account.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+      setOpenAIAccounts((current) => current.map((item) => (item.id === payload.account.id ? payload.account : item)));
+      setOpenAIMessage(status === "active" ? "OpenAI 账号已启用。" : "OpenAI 账号已禁用。更新 provider 后 Worker 会停止使用它。 ");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "OpenAI 账号状态更新失败");
+    } finally {
+      setOpenAISaving(false);
+    }
   }
 
   async function saveSettings(): Promise<void> {
@@ -113,6 +172,7 @@ export function AdminClient() {
 
     try {
       const body: {
+        imageProvider?: ImageProvider;
         sub2apiApiKey?: string;
         sub2apiBaseUrl?: string;
         imageModel?: string;
@@ -123,6 +183,7 @@ export function AdminClient() {
         registrationDefaultGroupId?: string;
         registrationDefaultQuota?: number;
       } = {
+        imageProvider,
         sub2apiBaseUrl: baseUrl,
         imageModel,
         imageConcurrency,
@@ -142,6 +203,7 @@ export function AdminClient() {
         body: JSON.stringify(body),
       });
       setSettings(payload.settings);
+      setImageProvider(payload.settings.imageProvider);
       setImageConcurrency(payload.settings.imageConcurrency);
       setSiteTitle(payload.settings.siteTitle);
       setSiteSubtitle(payload.settings.siteSubtitle);
@@ -640,6 +702,19 @@ export function AdminClient() {
                   onChange={(event) => setRegistrationDefaultQuota(Number(event.target.value))}
                 />
               </div>
+              <div className="field">
+                <label htmlFor="imageProvider">图片接口模式</label>
+                <select
+                  id="imageProvider"
+                  className="select"
+                  value={imageProvider}
+                  onChange={(event) => setImageProvider(event.target.value as ImageProvider)}
+                >
+                  <option value="sub2api">sub2api / OpenAI-compatible API Key</option>
+                  <option value="openai_oauth">内置 OpenAI OAuth（实验性）</option>
+                </select>
+                <small>OAuth 模式会优先使用下方已连接且启用的 OpenAI 账号；真实图片接口兼容性仍需在账号环境验证。</small>
+              </div>
               <div className="field-row">
                 <div className="field">
                   <label htmlFor="sub2apiBaseUrl">Base URL</label>
@@ -691,6 +766,67 @@ export function AdminClient() {
                 {settingsSaving ? "保存中" : "保存配置"}
               </button>
               <div className="toast-line">{settingsMessage}</div>
+            </div>
+          </section>
+
+          <section className="panel" style={{ marginTop: "1rem" }}>
+            <div className="panel-header">
+              <div>
+                <h2>OpenAI 账号连接</h2>
+                <p>内置 OAuth 账号连接器第一版。token 仅服务端保存并加密，不会回显到页面。</p>
+              </div>
+              <span className="badge">实验性</span>
+            </div>
+            <div className="panel-body form-stack">
+              <div className="section-title-row">
+                <strong>已连接账号</strong>
+                <button className="button" type="button" onClick={loadAccounts} disabled={openAISaving}>
+                  <RefreshCw size={16} aria-hidden="true" />
+                  刷新账号
+                </button>
+              </div>
+              {openAIAccounts.length > 0 ? (
+                <div className="admin-grid admin-grid-groups">
+                  <div className="admin-grid-head">账号</div>
+                  <div className="admin-grid-head">状态</div>
+                  <div className="admin-grid-head">操作</div>
+                  {openAIAccounts.map((account) => (
+                    <div className="admin-grid-row" key={account.id}>
+                      <div className="field compact-field">
+                        <strong>{account.email ?? account.accountId ?? "OpenAI 账号"}</strong>
+                        <small>
+                          {account.planType ?? "未知套餐"} · token 到期 {new Date(account.expiresAt).toLocaleString()}
+                        </small>
+                        {account.lastError ? <small>错误：{account.lastError}</small> : null}
+                      </div>
+                      <span className={clsx("badge", account.status === "active" ? "success" : "danger")}>
+                        {account.status === "active" ? "可用" : account.status === "disabled" ? "已禁用" : "异常"}
+                      </span>
+                      <button
+                        className="button"
+                        type="button"
+                        onClick={() => setOpenAIAccountStatus(account, account.status === "active" ? "disabled" : "active")}
+                        disabled={openAISaving}
+                      >
+                        {account.status === "active" ? "禁用" : "启用"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <span>还没有连接 OpenAI 账号</span>
+                </div>
+              )}
+              <button className="button primary" type="button" onClick={connectOpenAIAccount} disabled={openAISaving}>
+                <KeyRound size={16} aria-hidden="true" />
+                {openAISaving ? "处理中" : "连接 OpenAI 账号"}
+              </button>
+              <small>
+                说明：该流程参考 Codex CLI OAuth + PKCE。若部署在服务器上，请设置固定回调地址并确保
+                OPENAI_OAUTH_TOKEN_ENCRYPTION_KEY 已配置。
+              </small>
+              <div className="toast-line">{openAIMessage}</div>
             </div>
           </section>
 

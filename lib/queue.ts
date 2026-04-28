@@ -8,7 +8,7 @@ import {
   markTaskFailed,
   markTaskSucceeded,
 } from "./db";
-import { callImageModel } from "./sub2api";
+import { callImageModel } from "./image-provider";
 import { parseSize, saveGeneratedImageFile } from "./storage";
 
 export async function processNextQueuedTask(): Promise<boolean> {

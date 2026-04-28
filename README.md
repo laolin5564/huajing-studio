@@ -2,7 +2,7 @@
 
 > 一个开源的团队级 AI 图片生成工作台。
 
-画境工坊是一套基于 Next.js + SQLite 的轻量图片生成系统，适合小团队、工作室、内容团队或公司内部自建使用。它可以接入 OpenAI 兼容格式的图片生成接口，例如 sub2api，把文生图、图生图、改图、模板、历史记录、用户权限和额度管理整合到一个后台里。
+画境工坊是一套基于 Next.js + SQLite 的轻量图片生成系统，适合小团队、工作室、内容团队或公司内部自建使用。它可以接入 OpenAI 兼容格式的图片生成接口，例如 sub2api，也提供实验性的内置 OpenAI OAuth 账号连接器，把文生图、图生图、改图、模板、历史记录、用户权限和额度管理整合到一个后台里。
 
 ## 适合谁用？
 
@@ -19,6 +19,7 @@
 - 内置模板系统，可维护常用风格和场景
 - 用户注册 / 登录，第一个注册用户自动成为管理员
 - 用户、分组、额度、后台配置管理
+- 两种图片接口模式：sub2api API Key / 内置 OpenAI OAuth（实验性）
 - SQLite 本地数据库，部署简单
 - 图片本地存储，不依赖额外对象存储
 - Docker Compose 一键部署
@@ -62,6 +63,12 @@ DATABASE_URL=file:./data/app.db
 IMAGE_REQUEST_TIMEOUT_MS=300000
 WORKER_POLL_INTERVAL_MS=3000
 SESSION_COOKIE_SECURE=false
+
+# 内置 OpenAI OAuth 模式（实验性）
+OPENAI_OAUTH_TOKEN_ENCRYPTION_KEY=
+OPENAI_OAUTH_REDIRECT_URI=
+OPENAI_OAUTH_CLIENT_ID=
+OPENAI_OAUTH_API_BASE_URL=https://api.openai.com/v1
 ```
 
 说明：
@@ -70,6 +77,40 @@ SESSION_COOKIE_SECURE=false
 - `SUB2API_API_KEY`：图片接口密钥，不要提交到 Git。
 - `IMAGE_MODEL`：图片模型名，例如 `gpt-image-2`。
 - `SESSION_COOKIE_SECURE`：如果只用 HTTP 访问，设为 `false`；HTTPS 部署可设为 `true`。
+- `OPENAI_OAUTH_TOKEN_ENCRYPTION_KEY`：内置 OpenAI OAuth 模式必填，用于 AES-256-GCM 加密保存 access token / refresh token。建议使用 32 字节以上随机字符串，或 `base64:` 前缀的 32 字节 key。
+- `OPENAI_OAUTH_REDIRECT_URI`：可选，固定 OAuth 回调地址；不填时按当前访问域名拼出 `/api/admin/openai-accounts/oauth/callback`。
+- `OPENAI_OAUTH_CLIENT_ID`：可选，默认使用参考 Codex CLI 的 OpenAI OAuth client_id；如果上游流程变更可覆盖。
+- `OPENAI_OAUTH_API_BASE_URL`：OAuth 模式下调用图片接口的 OpenAI-compatible Base URL，默认 `https://api.openai.com/v1`。
+
+## 图片接口模式
+
+### 1. sub2api API Key 模式（默认）
+
+后台「站点与模型配置」选择 `sub2api / OpenAI-compatible API Key`，填写：
+
+- Base URL：例如 `https://your-sub2api.example.com/v1`
+- API Key：sub2api 或 OpenAI-compatible 服务的密钥
+- 模型：例如 `gpt-image-2`
+
+这是当前最稳定的模式，Worker 会用 `Authorization: Bearer <API Key>` 调用 `/images/generations` 和 `/images/edits`。
+
+### 2. 内置 OpenAI OAuth 模式（实验性）
+
+后台「OpenAI 账号连接」点击「连接 OpenAI 账号」，完成授权后，再在「站点与模型配置」把图片接口模式切到 `内置 OpenAI OAuth`。
+
+当前实现参考 sub2api 的 Codex CLI OAuth + PKCE 流程：
+
+- 服务端生成 state / code_verifier / code_challenge，并发起 OpenAI OAuth 授权。
+- 回调接口交换 access token / refresh token。
+- SQLite 保存账号、邮箱、组织、套餐、token 到期时间和状态。
+- access token / refresh token 使用 `OPENAI_OAUTH_TOKEN_ENCRYPTION_KEY` 加密存储。
+- Worker 调用前会自动刷新快过期 token；刷新失败会把账号标记为异常。
+
+限制与注意：
+
+- 这是非官方/实验性流程，真实网页登录、账号风控、接口权限和图片模型可用性需要在你的 OpenAI 账号环境里验证。
+- OAuth access token 是否可直接调用 `OPENAI_OAUTH_API_BASE_URL` 的图片接口，取决于 OpenAI 当前策略；如果失败，可继续使用默认 sub2api API Key 模式。
+- 生产部署建议设置固定 `OPENAI_OAUTH_REDIRECT_URI`，并妥善保存 `OPENAI_OAUTH_TOKEN_ENCRYPTION_KEY`；丢失该 key 后，历史 token 无法解密，需要重新连接账号。
 
 ## Docker 部署
 
