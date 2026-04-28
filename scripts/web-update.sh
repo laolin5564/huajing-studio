@@ -27,6 +27,9 @@ fi
 
 if [[ -f /.dockerenv ]]; then
   log "检测到当前服务运行在 Docker 容器内。"
+  if [[ "$REPO_DIR" == /app || "$REPO_DIR" == /app/* ]]; then
+    fail "容器内不能直接更新 /app 镜像目录。请把宿主机 Git 项目目录按相同绝对路径挂载进容器，并设置 WEB_UPDATE_REPO_DIR 为该路径。"
+  fi
   if [[ ! -S /var/run/docker.sock ]]; then
     fail "容器内没有 /var/run/docker.sock，无法执行 Docker Compose 重建。请挂载 docker socket，或在宿主机执行 scripts/update.sh。"
   fi

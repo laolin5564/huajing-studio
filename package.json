@@ -8,8 +8,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "test": "bun test",
     "worker": "tsx workers/image-worker.ts",
-    "db:init": "tsx scripts/init-db.ts"
+    "db:init": "tsx scripts/init-db.ts",
+    "typecheck": "tsc --noEmit",
+    "secret:scan": "bash scripts/secret-scan.sh"
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -28,5 +31,19 @@
     "eslint-config-next": "^15.1.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
+  },
+  "description": "团队级 AI 图片生成工作台，支持 OpenAI-compatible 图片接口与实验性 OpenAI OAuth。",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/laolin5564/huajing-studio.git"
+  },
+  "bugs": {
+    "url": "https://github.com/laolin5564/huajing-studio/issues"
+  },
+  "homepage": "https://github.com/laolin5564/huajing-studio#readme",
+  "engines": {
+    "node": ">=25.0.0",
+    "bun": ">=1.3.0"
   }
 }

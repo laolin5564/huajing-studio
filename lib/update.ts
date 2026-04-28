@@ -38,6 +38,10 @@ function validateUpdateCheckUrl(rawUrl: string): URL {
   return url;
 }
 
+function updateCheckSignal(): AbortSignal | undefined {
+  return typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(10_000) : undefined;
+}
+
 export async function checkSystemUpdate(): Promise<SystemUpdateInfo> {
   const updateUrl = validateUpdateCheckUrl(appConfig.updateCheckUrl);
   const response = await fetch(updateUrl, {
@@ -46,6 +50,7 @@ export async function checkSystemUpdate(): Promise<SystemUpdateInfo> {
       "User-Agent": `huajing-studio/${appVersion}`,
     },
     cache: "no-store",
+    signal: updateCheckSignal(),
   });
 
   if (!response.ok) {

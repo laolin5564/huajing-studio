@@ -6,7 +6,7 @@ REPO_SLUG="${UPDATE_REPO:-laolin5564/huajing-studio}"
 GITHUB_API="${UPDATE_CHECK_URL:-https://api.github.com/repos/${REPO_SLUG}/releases/latest}"
 UPDATE_TAG="${1:-${UPDATE_TAG:-}}"
 BACKUP_DIR="${BACKUP_DIR:-${REPO_DIR}/backups}"
-COMPOSE_BIN="${COMPOSE_BIN:-docker compose}"
+COMPOSE_BIN="${COMPOSE_BIN:-}"
 
 log() {
   printf '[huajing-update] %s\n' "$*"
@@ -29,7 +29,26 @@ validate_tag() {
 fetch_latest_tag() {
   require_cmd curl
   require_cmd python3
-  curl -fsSL "$GITHUB_API" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("tag_name", ""))'
+  curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 --retry 2 --retry-delay 1 "$GITHUB_API" \
+    | python3 -c 'import json, sys; print(json.load(sys.stdin).get("tag_name", ""))'
+}
+
+detect_compose_bin() {
+  if [[ -n "$COMPOSE_BIN" ]]; then
+    return
+  fi
+
+  if docker compose version >/dev/null 2>&1; then
+    COMPOSE_BIN="docker compose"
+    return
+  fi
+
+  if command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE_BIN="docker-compose"
+    return
+  fi
+
+  fail "缺少 Docker Compose。请安装 docker compose 插件或 docker-compose。"
 }
 
 cd "$REPO_DIR"
@@ -37,6 +56,7 @@ cd "$REPO_DIR"
 [[ -d .git ]] || fail "当前目录不是 Git 部署。请使用 git clone 安装，或手动下载 release 包覆盖代码。"
 require_cmd git
 require_cmd docker
+detect_compose_bin
 
 if [[ -z "$UPDATE_TAG" ]]; then
   log "正在从 GitHub Releases 获取最新版本..."
