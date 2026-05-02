@@ -453,6 +453,7 @@ function initializeSchema(database: DatabaseSync): void {
   ensureColumn(database, "generation_tasks", "user_id", "TEXT");
   ensureColumn(database, "generation_tasks", "conversation_id", "TEXT");
   ensureColumn(database, "generation_tasks", "reference_image_id", "TEXT");
+  ensureColumn(database, "generation_tasks", "reference_image_ids", "TEXT");
   ensureColumn(database, "source_images", "user_id", "TEXT");
   ensureColumn(database, "conversations", "user_id", "TEXT");
   ensureColumn(database, "users", "monthly_quota", "INTEGER");
