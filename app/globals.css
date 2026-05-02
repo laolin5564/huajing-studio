@@ -338,6 +338,7 @@ button.nav-link {
 }
 
 .panel {
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: 0.7rem;
   background: rgba(255, 255, 255, 0.82);
@@ -548,9 +549,10 @@ button.nav-link {
 
 .workbench-layout {
   display: grid;
-  grid-template-columns: minmax(18rem, 24rem) minmax(0, 1fr) minmax(17rem, 22rem);
+  grid-template-columns: minmax(18rem, 23rem) minmax(0, 1fr) minmax(16rem, 20rem);
   gap: 1rem;
-  align-items: start;
+  align-items: stretch;
+  min-width: 0;
 }
 
 .mode-tabs {
@@ -609,10 +611,24 @@ button.nav-link {
   font-size: 0.82rem;
 }
 
+.queue-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 8.8rem);
+  overflow: hidden;
+}
+
+.queue-panel .panel-header {
+  flex: 0 0 auto;
+}
+
 .queue-list {
   display: grid;
+  align-content: start;
   gap: 0.85rem;
-  max-height: min(45rem, calc(100vh - 17rem));
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 0.35rem;
@@ -875,25 +891,39 @@ button.nav-link {
 }
 
 .conversation-panel {
+  display: flex;
+  flex-direction: column;
   min-height: 44rem;
+  max-height: calc(100vh - 8.8rem);
+  overflow: hidden;
+}
+
+.conversation-panel .panel-header {
+  flex: 0 0 auto;
 }
 
 .conversation-body {
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 0;
+  overflow: hidden;
 }
 
 .conversation-window {
   display: grid;
-  grid-template-rows: minmax(24rem, 1fr) auto;
-  min-height: 38rem;
+  grid-template-rows: minmax(0, 1fr) auto;
+  height: 100%;
+  min-height: 0;
 }
 
 .conversation-thread {
   display: grid;
   align-content: start;
   gap: 1rem;
-  max-height: 58vh;
+  min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 1rem;
 }
 
@@ -912,6 +942,7 @@ button.nav-link {
 .message-bubble {
   display: grid;
   gap: 0.65rem;
+  min-width: 0;
   width: min(100%, 28rem);
   padding: 0.8rem;
   border: 1px solid var(--line);
@@ -937,6 +968,7 @@ button.nav-link {
 
 .message-bubble p {
   margin: 0;
+  overflow-wrap: anywhere;
   white-space: pre-wrap;
   line-height: 1.65;
 }
@@ -1037,6 +1069,8 @@ button.nav-link {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.75rem;
+  flex: 0 0 auto;
+  min-width: 0;
   padding: 1rem;
   border-top: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.76);
@@ -1143,6 +1177,7 @@ button.nav-link {
 .queue-item {
   display: grid;
   gap: 0.55rem;
+  min-width: 0;
   padding: 0.75rem;
   width: 100%;
   color: inherit;
@@ -1176,15 +1211,26 @@ button.nav-link {
   align-items: center;
   justify-content: space-between;
   gap: 0.6rem;
+  min-width: 0;
+}
+
+.queue-item-top .badge {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .queue-prompt {
+  display: -webkit-box;
   overflow: hidden;
   color: var(--muted);
   font-size: 0.82rem;
   line-height: 1.45;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
 }
 
 .history-toolbar,
