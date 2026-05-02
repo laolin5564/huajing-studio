@@ -1173,7 +1173,7 @@ export function createGenerationTask(input: CreateTaskInput): GenerationTaskRow 
           id, user_id, conversation_id, mode, status, prompt, negative_prompt, size, quantity, template_id,
           source_image_id, reference_image_id, reference_image_ids, reference_strength, style_strength, cost_estimate,
           error_message, created_at, started_at, completed_at
-        ) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
+        ) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL)
       `,
       )
       .run(
