@@ -281,13 +281,6 @@ function initializeSchema(database: DatabaseSync): void {
       completed_at TEXT
     );
 
-    // v0.1.7: multi-reference-image support
-    try {
-      database.exec("ALTER TABLE generation_tasks ADD COLUMN reference_image_ids TEXT");
-    } catch {
-      // column already exists
-    }
-
     CREATE INDEX IF NOT EXISTS idx_generation_tasks_status_created
       ON generation_tasks (status, created_at);
 
