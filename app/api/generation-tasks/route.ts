@@ -46,12 +46,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       assertConversationAccess(user, conversation);
     }
 
+    const allSourceImageIds: string[] = [];
     if (input.sourceImageId) {
-      assertImageReferenceAccess(user, input.sourceImageId);
+      allSourceImageIds.push(input.sourceImageId);
+    }
+    if (input.sourceImageIds) {
+      allSourceImageIds.push(...input.sourceImageIds);
     }
 
-    if (input.mode !== "text_to_image" && !getImageFilePathById(input.sourceImageId ?? "")) {
-      return jsonError("参考图不存在或已无法访问", 400);
+    for (const imgId of allSourceImageIds) {
+      assertImageReferenceAccess(user, imgId);
+    }
+
+    if (input.mode !== "text_to_image" && allSourceImageIds.length > 0) {
+      const anyMissing = allSourceImageIds.some((imgId) => !getImageFilePathById(imgId));
+      if (anyMissing) {
+        return jsonError("参考图不存在或已无法访问", 400);
+      }
     }
 
     assertQuotaAvailable(user, input.quantity);
@@ -59,6 +70,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const task = createGenerationTask({
       ...input,
       userId: user.id,
+      referenceImageIds: input.sourceImageIds ?? [],
     });
     return NextResponse.json(
       {

@@ -28,6 +28,7 @@ export interface GenerationTaskRow {
   template_id: string | null;
   source_image_id: string | null;
   reference_image_id: string | null;
+  reference_image_ids: string | null;
   reference_strength: number;
   style_strength: number;
   cost_estimate: number;
@@ -202,6 +203,7 @@ export interface PublicTask {
   sourceImageId: string | null;
   referenceImageId: string | null;
   referenceImage: PublicSourceImage | null;
+  referenceImages: PublicSourceImage[];
   referenceStrength: number;
   styleStrength: number;
   costEstimate: number;

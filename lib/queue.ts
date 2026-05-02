@@ -18,8 +18,16 @@ export async function processNextQueuedTask(): Promise<boolean> {
   }
 
   try {
-    const sourceImagePaths = [task.source_image_id, task.reference_image_id]
-      .filter((id): id is string => Boolean(id))
+    let extraRefIds: string[] = [];
+    try {
+      extraRefIds = task.reference_image_ids ? JSON.parse(task.reference_image_ids) : [];
+    } catch {
+      // malformed JSON, treat as empty
+    }
+    const allRefIds = [task.source_image_id, task.reference_image_id, ...extraRefIds].filter(
+      (id): id is string => Boolean(id),
+    );
+    const sourceImagePaths = allRefIds
       .map((id) => getImageFilePathById(id))
       .filter((filePath): filePath is string => Boolean(filePath));
     const generated = await runWithTaskCancellation(task.id, (signal) =>

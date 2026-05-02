@@ -42,9 +42,16 @@ export async function POST(
       return jsonError("当前会话还没有可继续改图的图片", 400);
     }
     assertGeneratedImageAccess(user, sourceImage);
+    const allRefIds: string[] = [];
     if (input.referenceImageId) {
-      assertImageReferenceAccess(user, input.referenceImageId);
-      if (!getImageFilePathById(input.referenceImageId)) {
+      allRefIds.push(input.referenceImageId);
+    }
+    if (input.referenceImageIds) {
+      allRefIds.push(...input.referenceImageIds);
+    }
+    for (const refId of allRefIds) {
+      assertImageReferenceAccess(user, refId);
+      if (!getImageFilePathById(refId)) {
         return jsonError("参考图不存在或已无法访问", 400);
       }
     }
@@ -61,6 +68,7 @@ export async function POST(
       templateId: sourceImage.template_id,
       sourceImageId: sourceImage.id,
       referenceImageId: input.referenceImageId,
+      referenceImageIds: input.referenceImageIds ?? [],
       referenceStrength: input.referenceStrength,
       styleStrength: input.styleStrength,
     });

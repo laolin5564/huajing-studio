@@ -49,6 +49,7 @@ export interface CreateTaskInput {
   templateId: string | null;
   sourceImageId: string | null;
   referenceImageId?: string | null;
+  referenceImageIds?: string[];
   referenceStrength: number;
   styleStrength: number;
 }
@@ -279,6 +280,13 @@ function initializeSchema(database: DatabaseSync): void {
       started_at TEXT,
       completed_at TEXT
     );
+
+    // v0.1.7: multi-reference-image support
+    try {
+      database.exec("ALTER TABLE generation_tasks ADD COLUMN reference_image_ids TEXT");
+    } catch {
+      // column already exists
+    }
 
     CREATE INDEX IF NOT EXISTS idx_generation_tasks_status_created
       ON generation_tasks (status, created_at);
@@ -1169,7 +1177,7 @@ export function createGenerationTask(input: CreateTaskInput): GenerationTaskRow 
         `
         INSERT INTO generation_tasks (
           id, user_id, conversation_id, mode, status, prompt, negative_prompt, size, quantity, template_id,
-          source_image_id, reference_image_id, reference_strength, style_strength, cost_estimate,
+          source_image_id, reference_image_id, reference_image_ids, reference_strength, style_strength, cost_estimate,
           error_message, created_at, started_at, completed_at
         ) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL)
       `,
@@ -1186,6 +1194,7 @@ export function createGenerationTask(input: CreateTaskInput): GenerationTaskRow 
         input.templateId,
         input.sourceImageId,
         input.referenceImageId ?? null,
+        JSON.stringify(input.referenceImageIds ?? []),
         input.referenceStrength,
         input.styleStrength,
         costEstimate,
@@ -1760,6 +1769,14 @@ export function toPublicTask(row: GenerationTaskRow, images: GeneratedImageRow[]
     sourceImageId: row.source_image_id,
     referenceImageId: row.reference_image_id,
     referenceImage: row.reference_image_id ? toPublicReferenceImage(row.reference_image_id) : null,
+    referenceImages: (() => {
+      try {
+        const ids: string[] = row.reference_image_ids ? JSON.parse(row.reference_image_ids) : [];
+        return ids.map((id) => toPublicReferenceImage(id)).filter((img): img is PublicSourceImage => img !== null);
+      } catch {
+        return [];
+      }
+    })(),
     referenceStrength: row.reference_strength,
     styleStrength: row.style_strength,
     costEstimate: row.cost_estimate,

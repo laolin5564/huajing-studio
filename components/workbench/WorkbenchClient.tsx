@@ -68,18 +68,18 @@ export function WorkbenchClient() {
   const [templateId, setTemplateId] = useState("");
   const [referenceStrength, setReferenceStrength] = useState(0.6);
   const [styleStrength, setStyleStrength] = useState(0.7);
-  const [sourceFile, setSourceFile] = useState<File | null>(null);
-  const [sourceImageId, setSourceImageId] = useState<string | null>(null);
-  const [sourcePreview, setSourcePreview] = useState<string | null>(null);
+  const [sourceFiles, setSourceFiles] = useState<File[]>([]);
+  const [sourceImageIds, setSourceImageIds] = useState<string[]>([]);
+  const [sourcePreviews, setSourcePreviews] = useState<string[]>([]);
   const [isDraggingSourceImage, setIsDraggingSourceImage] = useState(false);
   const [conversations, setConversations] = useState<PublicConversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [activeConversation, setActiveConversation] = useState<PublicConversation | null>(null);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [chatPrompt, setChatPrompt] = useState("");
-  const [chatSourceFile, setChatSourceFile] = useState<File | null>(null);
-  const [chatSourceImageId, setChatSourceImageId] = useState<string | null>(null);
-  const [chatSourcePreview, setChatSourcePreview] = useState<string | null>(null);
+  const [chatSourceFiles, setChatSourceFiles] = useState<File[]>([]);
+  const [chatSourceImageIds, setChatSourceImageIds] = useState<string[]>([]);
+  const [chatSourcePreviews, setChatSourcePreviews] = useState<string[]>([]);
   const [isDraggingChatSourceImage, setIsDraggingChatSourceImage] = useState(false);
   const [templates, setTemplates] = useState<PublicTemplate[]>([]);
   const [busy, setBusy] = useState(false);
@@ -139,8 +139,8 @@ export function WorkbenchClient() {
       setPrompt(defaultPromptByMode[nextMode as GenerationMode]);
     }
     if (nextSourceImageId) {
-      setSourceImageId(nextSourceImageId);
-      setSourcePreview(null);
+      setSourceImageIds([nextSourceImageId]);
+      setSourcePreviews([]);
     }
   }, []);
 
@@ -162,7 +162,8 @@ export function WorkbenchClient() {
     setReferenceStrength(template.defaultReferenceStrength);
     setStyleStrength(template.defaultStyleStrength);
     if (template.sourceImageId) {
-      setSourceImageId(template.sourceImageId);
+      setSourceImageIds([template.sourceImageId]);
+      setSourcePreviews([]);
     }
   }
 
@@ -170,62 +171,75 @@ export function WorkbenchClient() {
     return ["image/png", "image/jpeg", "image/webp"].includes(file.type);
   }
 
-  function handleFileChange(file: File | null): void {
-    if (file && !isSupportedImageFile(file)) {
+  function handleFilesChange(files: FileList | File[] | null): void {
+    if (!files) return;
+    const validFiles = Array.from(files).filter((f) => isSupportedImageFile(f));
+    if (validFiles.length === 0) {
       setError("仅支持 PNG、JPG 或 WEBP 图片");
       return;
     }
     setError("");
-    setSourceFile(file);
-    setSourceImageId(null);
-    if (sourcePreview?.startsWith("blob:")) {
-      URL.revokeObjectURL(sourcePreview);
+    const remaining = 4 - sourceFiles.length;
+    const toAdd = validFiles.slice(0, remaining);
+    if (validFiles.length > remaining) {
+      setError(`最多上传 4 张参考图，已添加 ${remaining} 张`);
     }
-    setSourcePreview(file ? URL.createObjectURL(file) : null);
+    setSourceFiles((prev) => [...prev, ...toAdd]);
+    setSourceImageIds([]);
+    setSourcePreviews((prev) => [...prev, ...toAdd.map((f) => URL.createObjectURL(f))]);
   }
 
-  function handleChatSourceFileChange(file: File | null): void {
-    if (file && !isSupportedImageFile(file)) {
+  function removeSourceFile(index: number): void {
+    setSourceFiles((prev) => prev.filter((_, i) => i !== index));
+    setSourcePreviews((prev) => {
+      const url = prev[index];
+      if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+      return prev.filter((_, i) => i !== index);
+    });
+    setSourceImageIds((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function handleChatSourceFilesChange(files: FileList | File[] | null): void {
+    if (!files) return;
+    const validFiles = Array.from(files).filter((f) => isSupportedImageFile(f));
+    if (validFiles.length === 0) {
       setError("仅支持 PNG、JPG 或 WEBP 图片");
       return;
     }
     setError("");
-    setChatSourceFile(file);
-    setChatSourceImageId(null);
-    if (chatSourcePreview?.startsWith("blob:")) {
-      URL.revokeObjectURL(chatSourcePreview);
-    }
-    setChatSourcePreview(file ? URL.createObjectURL(file) : null);
-    if (file) {
+    const remaining = 4 - chatSourceFiles.length;
+    const toAdd = validFiles.slice(0, remaining);
+    setChatSourceFiles((prev) => [...prev, ...toAdd]);
+    setChatSourceImageIds([]);
+    setChatSourcePreviews((prev) => [...prev, ...toAdd.map((f) => URL.createObjectURL(f))]);
+    if (toAdd.length > 0) {
       setMessage("已添加会话参考图，本次继续改图会优先使用它。");
     }
   }
 
   function clearChatSourceImage(): void {
-    if (chatSourcePreview?.startsWith("blob:")) {
-      URL.revokeObjectURL(chatSourcePreview);
-    }
-    setChatSourceFile(null);
-    setChatSourceImageId(null);
-    setChatSourcePreview(null);
+    chatSourcePreviews.forEach((url) => {
+      if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+    });
+    setChatSourceFiles([]);
+    setChatSourceImageIds([]);
+    setChatSourcePreviews([]);
   }
 
-  function getFirstImageFile(files: FileList | File[] | null): File | null {
-    if (!files) {
-      return null;
-    }
-    return Array.from(files).find((file) => file.type.startsWith("image/")) ?? null;
+  function getValidImageFiles(files: FileList | File[] | null): File[] {
+    if (!files) return [];
+    return Array.from(files).filter((file) => file.type.startsWith("image/"));
   }
 
   function handleSourceDrop(event: DragEvent<HTMLButtonElement>): void {
     event.preventDefault();
     setIsDraggingSourceImage(false);
-    const file = getFirstImageFile(event.dataTransfer.files);
-    if (!file) {
+    const files = getValidImageFiles(event.dataTransfer.files);
+    if (files.length === 0) {
       setError("请拖入 PNG、JPG 或 WEBP 图片");
       return;
     }
-    handleFileChange(file);
+    handleFilesChange(files);
   }
 
   function handleSourceDragOver(event: DragEvent<HTMLButtonElement>): void {
@@ -237,12 +251,12 @@ export function WorkbenchClient() {
   function handleChatSourceDrop(event: DragEvent<HTMLDivElement>): void {
     event.preventDefault();
     setIsDraggingChatSourceImage(false);
-    const file = getFirstImageFile(event.dataTransfer.files);
-    if (!file) {
+    const files = getValidImageFiles(event.dataTransfer.files);
+    if (files.length === 0) {
       setError("请拖入 PNG、JPG 或 WEBP 图片");
       return;
     }
-    handleChatSourceFileChange(file);
+    handleChatSourceFilesChange(files);
   }
 
   function handleChatSourceDragOver(event: DragEvent<HTMLDivElement>): void {
@@ -252,12 +266,10 @@ export function WorkbenchClient() {
   }
 
   function handleChatSourcePaste(event: ClipboardEvent<HTMLDivElement>): void {
-    const file = getFirstImageFile(event.clipboardData.files);
-    if (!file) {
-      return;
-    }
+    const files = getValidImageFiles(event.clipboardData.files);
+    if (files.length === 0) return;
     event.preventDefault();
-    handleChatSourceFileChange(file);
+    handleChatSourceFilesChange(files);
   }
 
   async function handlePasteImage(): Promise<void> {
@@ -276,7 +288,7 @@ export function WorkbenchClient() {
         const blob = await item.getType(imageType);
         const extension = imageType.split("/")[1] || "png";
         const file = new File([blob], `clipboard-image-${Date.now()}.${extension}`, { type: imageType });
-        handleFileChange(file);
+        handleFilesChange([file]);
         setMessage("已从剪贴板读取图片");
         return;
       }
@@ -302,7 +314,7 @@ export function WorkbenchClient() {
         const blob = await item.getType(imageType);
         const extension = imageType.split("/")[1] || "png";
         const file = new File([blob], `chat-reference-${Date.now()}.${extension}`, { type: imageType });
-        handleChatSourceFileChange(file);
+        handleChatSourceFilesChange([file]);
         return;
       }
       setError("剪贴板里没有图片");
@@ -313,19 +325,19 @@ export function WorkbenchClient() {
 
   useEffect(() => {
     return () => {
-      if (sourcePreview?.startsWith("blob:")) {
-        URL.revokeObjectURL(sourcePreview);
-      }
+      sourcePreviews.forEach((url) => {
+        if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+      });
     };
-  }, [sourcePreview]);
+  }, [sourcePreviews]);
 
   useEffect(() => {
     return () => {
-      if (chatSourcePreview?.startsWith("blob:")) {
-        URL.revokeObjectURL(chatSourcePreview);
-      }
+      chatSourcePreviews.forEach((url) => {
+        if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+      });
     };
-  }, [chatSourcePreview]);
+  }, [chatSourcePreviews]);
 
   async function uploadImageFile(file: File): Promise<{ imageId: string; url: string }> {
     const formData = new FormData();
@@ -336,35 +348,42 @@ export function WorkbenchClient() {
     });
   }
 
-  async function uploadSourceIfNeeded(): Promise<string | null> {
+  async function uploadSourceIfNeeded(): Promise<{ primaryId: string | null; allIds: string[] }> {
     if (mode === "text_to_image") {
-      return null;
+      return { primaryId: null, allIds: [] };
     }
-    if (sourceImageId) {
-      return sourceImageId;
+    if (sourceImageIds.length > 0) {
+      return { primaryId: sourceImageIds[0] ?? null, allIds: sourceImageIds };
     }
-    if (!sourceFile) {
+    if (sourceFiles.length === 0) {
       throw new Error("请先上传参考图");
     }
-
-    const payload = await uploadImageFile(sourceFile);
-    setSourceImageId(payload.imageId);
-    setSourcePreview(payload.url);
-    return payload.imageId;
+    const uploadedIds = await Promise.all(
+      sourceFiles.map(async (file) => {
+        const payload = await uploadImageFile(file);
+        return payload.imageId;
+      }),
+    );
+    setSourceImageIds(uploadedIds);
+    return { primaryId: uploadedIds[0] ?? null, allIds: uploadedIds };
   }
 
-  async function uploadChatSourceIfNeeded(): Promise<string | null> {
-    if (chatSourceImageId) {
-      return chatSourceImageId;
+  async function uploadChatSourceIfNeeded(): Promise<{ primaryId: string | null; allIds: string[] }> {
+    if (chatSourceImageIds.length > 0) {
+      return { primaryId: chatSourceImageIds[0] ?? null, allIds: chatSourceImageIds };
     }
-    if (!chatSourceFile) {
-      return null;
+    if (chatSourceFiles.length === 0) {
+      return { primaryId: null, allIds: [] };
     }
-
-    const payload = await uploadImageFile(chatSourceFile);
-    setChatSourceImageId(payload.imageId);
-    setChatSourcePreview(payload.url);
-    return payload.imageId;
+    const uploadedIds = await Promise.all(
+      chatSourceFiles.map(async (file) => {
+        const payload = await uploadImageFile(file);
+        return payload.imageId;
+      }),
+    );
+    setChatSourceImageIds(uploadedIds);
+    setChatSourcePreviews(uploadedIds.map((id) => `/api/files/${id}`));
+    return { primaryId: uploadedIds[0] ?? null, allIds: uploadedIds };
   }
 
   async function submitTask(): Promise<void> {
@@ -378,7 +397,7 @@ export function WorkbenchClient() {
     setError("");
 
     try {
-      const resolvedSourceImageId = await uploadSourceIfNeeded();
+      const { primaryId: resolvedSourceImageId, allIds: resolvedAllIds } = await uploadSourceIfNeeded();
       const created = await apiJson<CreateTaskResponse>("/api/generation-tasks", {
         method: "POST",
         body: JSON.stringify({
@@ -389,6 +408,7 @@ export function WorkbenchClient() {
           quantity,
           templateId: templateId || null,
           sourceImageId: resolvedSourceImageId,
+          sourceImageIds: resolvedAllIds.length > 1 ? resolvedAllIds : undefined,
           referenceStrength,
           styleStrength,
         }),
@@ -482,9 +502,9 @@ export function WorkbenchClient() {
 
   function editWithImage(image: PublicImage): void {
     setMode("edit_image");
-    setSourceImageId(image.id);
+    setSourceImageIds([image.id]);
     setSelectedImageId(image.id);
-    setSourcePreview(image.url);
+    setSourcePreviews([image.url]);
     setPrompt("保留主体，把背景改成简约高级的办公场景，光线自然，画面干净");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -529,14 +549,15 @@ export function WorkbenchClient() {
     setMessage("");
 
     try {
-      const referenceImageId = await uploadChatSourceIfNeeded();
+      const { primaryId: chatPrimaryId, allIds: chatAllIds } = await uploadChatSourceIfNeeded();
       await apiJson<CreateTaskResponse>(`/api/conversations/${activeConversationId}/messages`, {
         method: "POST",
         body: JSON.stringify({
           prompt: chatPrompt,
           negativePrompt,
           sourceImageId: selectedImageId,
-          referenceImageId,
+          referenceImageId: chatPrimaryId,
+          referenceImageIds: chatAllIds.length > 1 ? chatAllIds : undefined,
           size,
           quantity: 1,
           referenceStrength,
@@ -658,12 +679,21 @@ export function WorkbenchClient() {
                   onDragEnter={handleSourceDragOver}
                   onDragLeave={() => setIsDraggingSourceImage(false)}
                 >
-                  {sourcePreview ? (
-                    <img className="upload-preview" src={sourcePreview} alt="参考图预览" />
+                  {sourcePreviews.length > 0 ? (
+                    <div className="source-preview-grid">
+                      {sourcePreviews.map((preview, idx) => (
+                        <div key={idx} className="source-preview-inline">
+                          <img className="upload-preview" src={preview} alt={`参考图 ${idx + 1}`} />
+                          <button className="icon-button ghost" type="button" onClick={() => removeSourceFile(idx)}>
+                            <X size={12} aria-hidden="true" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   ) : (
                     <>
                       <Upload size={20} aria-hidden="true" />
-                      <span>{sourceImageId ? "已选择历史图片作为参考图" : "点击、拖拽或粘贴 PNG / JPG / WEBP"}</span>
+                      <span>点击、拖拽或粘贴 PNG / JPG / WEBP（最多4张）</span>
                     </>
                   )}
                 </button>
@@ -679,7 +709,7 @@ export function WorkbenchClient() {
                   type="file"
                   accept="image/png,image/jpeg,image/webp"
                   hidden
-                  onChange={(event) => handleFileChange(event.target.files?.[0] ?? null)}
+                  onChange={(event) => handleFilesChange(event.target.files)}
                 />
               </div>
             ) : null}
@@ -793,12 +823,12 @@ export function WorkbenchClient() {
                 chatBusy={chatBusy}
                 canContinue={Boolean(activeConversation.latestImage)}
                 selectedImageId={selectedImageId}
-                chatSourcePreview={chatSourcePreview}
+                chatSourcePreviews={chatSourcePreviews}
                 isDraggingChatSourceImage={isDraggingChatSourceImage}
                 cancelingTaskId={cancelingTaskId}
                 retryingTaskId={retryingTaskId}
                 onChatPromptChange={setChatPrompt}
-                onChatSourceFileChange={handleChatSourceFileChange}
+                onChatSourceFilesChange={handleChatSourceFilesChange}
                 onChatSourceDrop={handleChatSourceDrop}
                 onChatSourceDragOver={handleChatSourceDragOver}
                 onChatSourceDragLeave={() => setIsDraggingChatSourceImage(false)}
@@ -883,12 +913,12 @@ function ConversationWindow({
   chatBusy,
   canContinue,
   selectedImageId,
-  chatSourcePreview,
+  chatSourcePreviews,
   isDraggingChatSourceImage,
   cancelingTaskId,
   retryingTaskId,
   onChatPromptChange,
-  onChatSourceFileChange,
+  onChatSourceFilesChange,
   onChatSourceDrop,
   onChatSourceDragOver,
   onChatSourceDragLeave,
@@ -909,12 +939,12 @@ function ConversationWindow({
   chatBusy: boolean;
   canContinue: boolean;
   selectedImageId: string | null;
-  chatSourcePreview: string | null;
+  chatSourcePreviews: string[];
   isDraggingChatSourceImage: boolean;
   cancelingTaskId: string | null;
   retryingTaskId: string | null;
   onChatPromptChange: (value: string) => void;
-  onChatSourceFileChange: (file: File | null) => void;
+  onChatSourceFilesChange: (files: FileList | File[] | null) => void;
   onChatSourceDrop: (event: DragEvent<HTMLDivElement>) => void;
   onChatSourceDragOver: (event: DragEvent<HTMLDivElement>) => void;
   onChatSourceDragLeave: () => void;
@@ -980,10 +1010,14 @@ function ConversationWindow({
         onPaste={onChatSourcePaste}
       >
         <div className="chat-reference-strip">
-          {chatSourcePreview ? (
-            <div className="chat-reference-preview">
-              <img src={chatSourcePreview} alt="上传参考图" />
-              <span>额外参考图</span>
+          {chatSourcePreviews.length > 0 ? (
+            <div className="source-preview-grid">
+              {chatSourcePreviews.map((preview, idx) => (
+                <div key={idx} className="chat-reference-preview">
+                  <img src={preview} alt={`参考图 ${idx + 1}`} />
+                  {chatSourcePreviews.length === 1 && <span>额外参考图</span>}
+                </div>
+              ))}
               <button className="icon-button ghost" type="button" onClick={onClearChatSourceImage} aria-label="移除参考图">
                 <X size={14} aria-hidden="true" />
               </button>
@@ -1015,7 +1049,7 @@ function ConversationWindow({
             accept="image/png,image/jpeg,image/webp"
             hidden
             onChange={(event) => {
-              onChatSourceFileChange(event.target.files?.[0] ?? null);
+              onChatSourceFilesChange(event.target.files);
               event.currentTarget.value = "";
             }}
           />
