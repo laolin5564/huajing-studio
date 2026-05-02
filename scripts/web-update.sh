@@ -25,6 +25,15 @@ fi
 [[ -d "$REPO_DIR/.git" ]] || fail "更新目录不是 Git 部署：$REPO_DIR。Docker 内启用时请把宿主机 Git 项目目录挂载进容器，并设置 WEB_UPDATE_REPO_DIR。"
 [[ -f "$UPDATE_SCRIPT" ]] || fail "找不到固定更新脚本：${REPO_DIR}/scripts/update.sh"
 
+# Clean up stale lock if older than 10 minutes (update should never take that long)
+if [[ -d "$LOCK_DIR" ]]; then
+  lock_age=$(( $(date +%s) - $(stat -c %Y "$LOCK_DIR" 2>/dev/null || echo 0) ))
+  if (( lock_age > 600 )); then
+    log "发现过期锁（${lock_age}s），自动清理"
+    rm -rf "$LOCK_DIR"
+  fi
+fi
+
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
   fail "已有 Web 更新任务正在执行"
 fi
