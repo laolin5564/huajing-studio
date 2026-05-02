@@ -549,7 +549,7 @@ button.nav-link {
 
 .workbench-layout {
   display: grid;
-  grid-template-columns: minmax(18rem, 23rem) minmax(0, 1fr) minmax(16rem, 20rem);
+  grid-template-columns: minmax(19rem, 24rem) minmax(0, 1fr) minmax(19rem, 24rem);
   gap: 1rem;
   align-items: stretch;
   min-width: 0;
