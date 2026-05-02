@@ -24,8 +24,10 @@ export async function processNextQueuedTask(): Promise<boolean> {
     } catch {
       // malformed JSON, treat as empty
     }
-    const allRefIds = [task.source_image_id, task.reference_image_id, ...extraRefIds].filter(
-      (id): id is string => Boolean(id),
+    const allRefIds = Array.from(
+      new Set(
+        [task.source_image_id, task.reference_image_id, ...extraRefIds].filter((id): id is string => Boolean(id)),
+      ),
     );
     const sourceImagePaths = allRefIds
       .map((id) => getImageFilePathById(id))

@@ -1136,6 +1136,17 @@ button.nav-link {
   width: min(100%, 18rem);
 }
 
+.message-reference-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: 0.5rem;
+  max-width: min(100%, 34rem);
+}
+
+.message-reference-grid .message-reference-card {
+  width: 100%;
+}
+
 .message-reference-card small {
   display: block;
   overflow: hidden;

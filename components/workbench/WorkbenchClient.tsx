@@ -1150,7 +1150,7 @@ function ConversationMessageItem({
           ) : null}
         </div>
         <p>{displayMessageContent(message.content)}</p>
-        {isUser && task?.referenceImage ? <SourceReferencePreview image={task.referenceImage} /> : null}
+        {isUser && task ? <SourceReferencePreviewList images={task.referenceImages.length > 0 ? task.referenceImages : task.referenceImage ? [task.referenceImage] : []} /> : null}
         {isUser && message.sourceImage ? <SourceReferencePreview image={message.sourceImage} /> : null}
         {shouldShowTaskError ? <small className="toast-line error">{compactErrorMessage(task.errorMessage)}</small> : null}
         {images.length > 1 ? (
@@ -1240,12 +1240,24 @@ function ImageCard({
   );
 }
 
-function SourceReferencePreview({ image }: { image: PublicSourceImage }) {
+function SourceReferencePreviewList({ images }: { images: PublicSourceImage[] }) {
+  if (images.length === 0) return null;
+  if (images.length === 1) return <SourceReferencePreview image={images[0]} />;
+  return (
+    <div className="message-reference-grid" aria-label={`参考图 ${images.length} 张`}>
+      {images.map((image, index) => (
+        <SourceReferencePreview key={`${image.id}-${index}`} image={image} label={`参考图 ${index + 1}`} />
+      ))}
+    </div>
+  );
+}
+
+function SourceReferencePreview({ image, label = "参考图" }: { image: PublicSourceImage; label?: string }) {
   return (
     <div className="message-reference-card">
-      <img src={image.url} alt={image.originalName ?? "参考图"} />
+      <img src={image.url} alt={image.originalName ?? label} />
       <div>
-        <span>额外参考图</span>
+        <span>{label}</span>
         <small>{image.originalName ?? image.mimeType ?? "上传图片"}</small>
       </div>
     </div>
