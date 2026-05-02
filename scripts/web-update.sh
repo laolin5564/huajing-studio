@@ -44,7 +44,7 @@ if [[ -f /.dockerenv ]]; then
     fail "容器内缺少 docker CLI。请重新构建最新镜像，或在宿主机执行 scripts/update.sh。"
   fi
 
-  exec docker run --rm \
+  docker run --rm \
     -e UPDATE_REPO="${UPDATE_REPO:-}" \
     -e UPDATE_CHECK_URL="${UPDATE_CHECK_URL:-}" \
     -e UPDATE_TAG="${UPDATE_TAG:-}" \
@@ -67,4 +67,4 @@ fi
 
 chmod +x "$UPDATE_SCRIPT" || fail "无法设置 scripts/update.sh 可执行权限"
 cd "$REPO_DIR"
-exec "$UPDATE_SCRIPT"
+"$UPDATE_SCRIPT"
