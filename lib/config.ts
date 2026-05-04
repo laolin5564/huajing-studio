@@ -75,6 +75,7 @@ export const appConfig = {
   sub2apiBaseUrl: process.env.SUB2API_BASE_URL || "https://s2a.laolin.ai/v1",
   sub2apiApiKey: process.env.SUB2API_API_KEY || "",
   imageModel: process.env.IMAGE_MODEL || "gpt-image-2",
+  promptOptimizerModel: process.env.PROMPT_OPTIMIZER_MODEL || "gpt-5.5",
   imageRequestTimeoutMs: readNumberEnv("IMAGE_REQUEST_TIMEOUT_MS", 300_000),
   workerPollIntervalMs: readNumberEnv("WORKER_POLL_INTERVAL_MS", 3_000),
   costPerImage: readNumberEnv("COST_PER_IMAGE", 0.04),

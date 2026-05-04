@@ -13,6 +13,25 @@ export type TemplateCategory = (typeof templateCategories)[number];
 export const templateScopes = ["platform", "user"] as const;
 export type TemplateScope = (typeof templateScopes)[number];
 
+export const templateVariableTypes = ["text", "textarea", "select"] as const;
+export type TemplateVariableType = (typeof templateVariableTypes)[number];
+
+export interface TemplateVariableOption {
+  label: string;
+  value: string;
+}
+
+export interface TemplateVariableDefinition {
+  key: string;
+  label: string;
+  type: TemplateVariableType;
+  required: boolean;
+  placeholder: string | null;
+  defaultValue: string | null;
+  helperText: string | null;
+  options: TemplateVariableOption[];
+}
+
 export const userRoles = ["admin", "member"] as const;
 export type UserRole = (typeof userRoles)[number];
 
@@ -88,6 +107,7 @@ export interface TemplateRow {
   default_reference_strength: number;
   default_style_strength: number;
   source_image_id: string | null;
+  template_variables: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -308,6 +328,7 @@ export interface PublicTemplate {
   defaultReferenceStrength: number;
   defaultStyleStrength: number;
   sourceImageId: string | null;
+  templateVariables: TemplateVariableDefinition[];
   createdAt: string;
   updatedAt: string;
 }
@@ -372,6 +393,7 @@ export interface PublicAdminSettings {
   imageModel: string;
   imageConcurrency: number;
   imageRetentionDays: number;
+  promptOptimizerModel: string;
   siteTitle: string;
   siteSubtitle: string;
   registrationEnabled: boolean;

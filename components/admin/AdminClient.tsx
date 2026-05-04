@@ -87,6 +87,7 @@ export function AdminClient() {
   const [imageProvider, setImageProvider] = useState<ImageProvider>("sub2api");
   const [baseUrl, setBaseUrl] = useState("");
   const [imageModel, setImageModel] = useState("");
+  const [promptOptimizerModel, setPromptOptimizerModel] = useState("gpt-5.5");
   const [imageConcurrency, setImageConcurrency] = useState(2);
   const [imageRetentionDays, setImageRetentionDays] = useState(0);
   const [siteTitle, setSiteTitle] = useState("");
@@ -145,6 +146,7 @@ export function AdminClient() {
     setImageProvider(payload.settings.imageProvider);
     setBaseUrl(payload.settings.sub2apiBaseUrl);
     setImageModel(payload.settings.imageModel);
+    setPromptOptimizerModel(payload.settings.promptOptimizerModel);
     setImageConcurrency(payload.settings.imageConcurrency);
     setImageRetentionDays(payload.settings.imageRetentionDays);
     setSiteTitle(payload.settings.siteTitle);
@@ -352,6 +354,7 @@ export function AdminClient() {
         sub2apiApiKey?: string;
         sub2apiBaseUrl?: string;
         imageModel?: string;
+        promptOptimizerModel?: string;
         imageConcurrency?: number;
         imageRetentionDays?: number;
         siteTitle?: string;
@@ -368,6 +371,7 @@ export function AdminClient() {
         registrationEnabled,
         registrationDefaultGroupId,
         registrationDefaultQuota,
+        promptOptimizerModel,
       };
 
       if (!isOpenAIOAuthProvider) {
@@ -378,13 +382,13 @@ export function AdminClient() {
       if (!isOpenAIOAuthProvider && apiKey.trim()) {
         body.sub2apiApiKey = apiKey.trim();
       }
-
       const payload = await apiJson<SettingsResponse>("/api/admin/settings", {
         method: "PUT",
         body: JSON.stringify(body),
       });
       setSettings(payload.settings);
       setImageProvider(payload.settings.imageProvider);
+      setPromptOptimizerModel(payload.settings.promptOptimizerModel);
       setImageConcurrency(payload.settings.imageConcurrency);
       setImageRetentionDays(payload.settings.imageRetentionDays);
       setSiteTitle(payload.settings.siteTitle);
@@ -1118,6 +1122,24 @@ export function AdminClient() {
                   onChange={(event) => setImageRetentionDays(Number(event.target.value))}
                 />
                 <small className="field-hint">0 表示不自动删除；开启后 Worker 会定期清理超过保留天数的历史生成图。</small>
+              </div>
+              <div className="settings-subsection">
+                <div>
+                  <h3>AI 提示词优化</h3>
+                </div>
+                <div className="field">
+                  <label htmlFor="promptOptimizerModel">提示词优化模型</label>
+                  <input
+                    id="promptOptimizerModel"
+                    className="input"
+                    value={promptOptimizerModel}
+                    onChange={(event) => setPromptOptimizerModel(event.target.value)}
+                    placeholder="gpt-5.5"
+                  />
+                  <small className="field-hint">
+                    工作台“优化提示词”复用上方图片接口模式的 Base URL / API Key / OpenAI OAuth，只切换为这个文本模型。
+                  </small>
+                </div>
               </div>
               <button className="button primary" type="button" onClick={saveSettings} disabled={settingsSaving}>
                 <Save size={16} aria-hidden="true" />

@@ -1,10 +1,28 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Edit3, LayoutTemplate, Plus, Save, ShieldCheck, Trash2, UserRound } from "lucide-react";
+import {
+  Edit3,
+  ExternalLink,
+  LayoutTemplate,
+  ListChecks,
+  Plus,
+  Save,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+  UserRound,
+} from "lucide-react";
 import clsx from "clsx";
 import { imageSizeLabels, sizeOptions } from "@/lib/image-options";
 import type { CurrentUser, PublicTemplate, TemplateCategory, TemplateScope } from "@/lib/types";
+import {
+  inspirationScenes,
+  templateInspirations,
+  type InspirationScene,
+  type PromptBreakdown,
+  type TemplateInspiration,
+} from "@/lib/template-inspirations";
 import { apiJson, categoryLabels, formatDateTime } from "@/components/client-api";
 
 interface TemplateListResponse {
@@ -33,11 +51,25 @@ const emptyForm = {
   sourceImageId: null as string | null,
 };
 
+function breakdownRows(breakdown: PromptBreakdown): Array<{ label: string; value: string }> {
+  return [
+    { label: "画面类型", value: breakdown.imageType },
+    { label: "主体", value: breakdown.subject },
+    { label: "场景", value: breakdown.scene },
+    { label: "构图", value: breakdown.composition },
+    { label: "光影", value: breakdown.lighting },
+    { label: "材质", value: breakdown.material },
+    { label: "文案", value: breakdown.copywriting },
+    { label: "比例", value: breakdown.ratio },
+  ];
+}
+
 export function TemplatesClient() {
   const [templates, setTemplates] = useState<PublicTemplate[]>([]);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [activeScope, setActiveScope] = useState<TemplateScope>("platform");
   const [activeCategory, setActiveCategory] = useState<TemplateCategory | "all">("all");
+  const [activeInspirationScene, setActiveInspirationScene] = useState<InspirationScene | "all">("all");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [message, setMessage] = useState("");
@@ -51,6 +83,14 @@ export function TemplatesClient() {
       ? scoped
       : scoped.filter((template) => template.category === activeCategory);
   }, [activeCategory, activeScope, templates]);
+
+  const visibleInspirations = useMemo(
+    () =>
+      activeInspirationScene === "all"
+        ? templateInspirations
+        : templateInspirations.filter((inspiration) => inspiration.sceneCategory === activeInspirationScene),
+    [activeInspirationScene],
+  );
 
   const canCreateInActiveScope = activeScope === "user" || currentUser?.role === "admin";
 
@@ -151,6 +191,43 @@ export function TemplatesClient() {
     }
   }
 
+  async function createTemplateFromInspiration(inspiration: TemplateInspiration): Promise<void> {
+    if (activeScope === "platform" && currentUser?.role !== "admin") {
+      setError("只有管理员可以导入平台模板。");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const payload = await apiJson<TemplateResponse>("/api/templates", {
+        method: "POST",
+        body: JSON.stringify({
+          scope: activeScope,
+          name: inspiration.draft.name,
+          category: inspiration.category,
+          description: `${inspiration.draft.description} 来源：${inspiration.sourceName}`,
+          defaultPrompt: inspiration.draft.defaultPrompt,
+          defaultNegativePrompt: inspiration.draft.defaultNegativePrompt,
+          defaultSize: inspiration.defaultSize,
+          defaultReferenceStrength: inspiration.draft.defaultReferenceStrength,
+          defaultStyleStrength: inspiration.draft.defaultStyleStrength,
+          sourceImageId: null,
+          templateVariables: inspiration.draft.templateVariables,
+        }),
+      });
+      await loadTemplates();
+      setEditingId(payload.template.id);
+      setActiveScope(payload.template.scope);
+      setMessage(`已导入「${payload.template.name}」，可在工作台直接使用。`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "导入模板失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <>
       <section className="page-heading">
@@ -162,6 +239,90 @@ export function TemplatesClient() {
           <Plus size={16} aria-hidden="true" />
           {activeScope === "platform" ? "新建平台模板" : "新建用户模板"}
         </button>
+      </section>
+
+      <section className="panel inspiration-panel">
+        <div className="panel-header">
+          <div>
+            <h2>案例灵感库</h2>
+            <p>按业务场景整理 awesome-gpt-image-2 的方法论，先看效果方向，再一键转成可填表模板。</p>
+          </div>
+          <span className="badge">
+            <Sparkles size={13} aria-hidden="true" />
+            Prompt-as-Code
+          </span>
+        </div>
+        <div className="panel-body inspiration-body">
+          <div className="inspiration-tabs" aria-label="案例场景">
+            <button
+              className={clsx("scene-pill", activeInspirationScene === "all" && "active")}
+              type="button"
+              onClick={() => setActiveInspirationScene("all")}
+            >
+              全部
+            </button>
+            {inspirationScenes.map((scene) => (
+              <button
+                className={clsx("scene-pill", activeInspirationScene === scene && "active")}
+                type="button"
+                key={scene}
+                onClick={() => setActiveInspirationScene(scene)}
+              >
+                {scene}
+              </button>
+            ))}
+          </div>
+          <div className="inspiration-grid">
+          {visibleInspirations.map((inspiration) => (
+            <article className="inspiration-card" key={inspiration.id}>
+              <div className="queue-item-top">
+                <span className="badge">{inspiration.sceneCategory}</span>
+                <span className="badge">{imageSizeLabels[inspiration.defaultSize as keyof typeof imageSizeLabels] ?? inspiration.defaultSize}</span>
+              </div>
+              <h3>{inspiration.title}</h3>
+              <p>{inspiration.description}</p>
+              <div className="effect-direction">
+                <strong>效果方向</strong>
+                <span>{inspiration.effectDirection}</span>
+              </div>
+              <details className="prompt-breakdown">
+                <summary>
+                  <ListChecks size={14} aria-hidden="true" />
+                  Prompt 拆解器
+                </summary>
+                <div className="breakdown-grid">
+                  {breakdownRows(inspiration.breakdown).map((row) => (
+                    <div className="breakdown-row" key={`${inspiration.id}-${row.label}`}>
+                      <span>{row.label}</span>
+                      <strong>{row.value}</strong>
+                    </div>
+                  ))}
+                  <div className="breakdown-row wide">
+                    <span>反向避坑</span>
+                    <strong>{inspiration.breakdown.pitfalls.join(" / ")}</strong>
+                  </div>
+                </div>
+              </details>
+              <small>{inspiration.insight}</small>
+              <div className="card-actions">
+                <button
+                  className="button subtle"
+                  type="button"
+                  onClick={() => void createTemplateFromInspiration(inspiration)}
+                  disabled={saving || !canCreateInActiveScope}
+                >
+                  <Plus size={15} aria-hidden="true" />
+                  导入为{activeScope === "platform" ? "平台" : "用户"}模板
+                </button>
+                <a className="button" href={inspiration.sourceUrl} target="_blank" rel="noreferrer">
+                  <ExternalLink size={15} aria-hidden="true" />
+                  来源
+                </a>
+              </div>
+            </article>
+          ))}
+          </div>
+        </div>
       </section>
 
       <section className="template-layout">

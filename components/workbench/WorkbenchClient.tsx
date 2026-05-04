@@ -35,8 +35,11 @@ import type {
   PublicSourceImage,
   PublicTask,
   PublicTemplate,
+  TemplateVariableDefinition,
 } from "@/lib/types";
 import { apiJson, copyTextToClipboard, formatDateTime, modeLabels, progressStageLabels, statusLabels } from "@/components/client-api";
+import { defaultValuesForTemplate, renderTemplatePrompt } from "@/lib/template-prompt";
+import type { TemplateVariableValues } from "@/lib/template-prompt";
 
 type WorkbenchMode = Exclude<GenerationMode, "edit_image">;
 type ChatAttachmentRole = "primary" | "reference";
@@ -76,10 +79,50 @@ interface CreateTaskResponse {
   status: string;
 }
 
+interface PromptOptimizerResponse {
+  prompt: string;
+}
+
 const defaultPromptByMode: Record<WorkbenchMode, string> = {
   text_to_image: "一张简约高级的公司产品宣传海报，白色背景，柔和自然光，科技感，留白充足",
   image_to_image: "保留主体特征，生成更高级干净的商业摄影场景，光线自然，质感清晰",
 };
+
+function missingTemplateVariables(template: PublicTemplate, values: TemplateVariableValues): string[] {
+  return template.templateVariables
+    .filter((variable) => variable.required && !values[variable.key]?.trim())
+    .map((variable) => variable.label);
+}
+
+function improvePromptText(value: string, template: PublicTemplate | null, sizeLabel: string): string {
+  const promptText = value.trim();
+  const additions = [
+    `目标规格：${sizeLabel}`,
+    "画面要求：主体明确，构图稳定，光线自然，材质清晰，商业摄影质感，高级但不杂乱。",
+    "输出要求：避免乱码文字、畸形结构、低清晰度、廉价促销感；如果需要标题区，请预留干净留白。",
+  ];
+  if (template?.name) {
+    additions.unshift(`生产模板：${template.name}`);
+  }
+  return [promptText, ...additions].filter(Boolean).join("\n");
+}
+
+function inferSourceImagePurpose(file: File): string {
+  const name = file.name.toLowerCase();
+  if (/(logo|标志|商标|icon|头像)/i.test(name)) {
+    return "Logo / 品牌图";
+  }
+  if (/(person|portrait|people|model|人物|人像|模特)/i.test(name)) {
+    return "人物图";
+  }
+  if (/(poster|cover|banner|海报|封面|首图)/i.test(name)) {
+    return "海报 / 封面图";
+  }
+  if (/(product|sku|goods|item|商品|产品|主图)/i.test(name)) {
+    return "产品图";
+  }
+  return "参考图";
+}
 
 function isSupportedImageMimeType(type: string): boolean {
   return supportedImageMimeTypes.includes(type as (typeof supportedImageMimeTypes)[number]);
@@ -198,6 +241,7 @@ export function WorkbenchClient() {
   const [size, setSize] = useState<ImageSizeOption>("auto");
   const [quantity, setQuantity] = useState<(typeof quantityOptions)[number]>(1);
   const [templateId, setTemplateId] = useState("");
+  const [templateVariableValues, setTemplateVariableValues] = useState<TemplateVariableValues>({});
   const [referenceStrength, setReferenceStrength] = useState(0.6);
   const [styleStrength, setStyleStrength] = useState(0.7);
   const [sourceFiles, setSourceFiles] = useState<File[]>([]);
@@ -216,6 +260,7 @@ export function WorkbenchClient() {
   const [fixedPromptSaving, setFixedPromptSaving] = useState(false);
   const [templates, setTemplates] = useState<PublicTemplate[]>([]);
   const [busy, setBusy] = useState(false);
+  const [promptOptimizing, setPromptOptimizing] = useState(false);
   const [chatBusy, setChatBusy] = useState(false);
   const [cancelingTaskId, setCancelingTaskId] = useState<string | null>(null);
   const [retryingTaskId, setRetryingTaskId] = useState<string | null>(null);
@@ -228,6 +273,16 @@ export function WorkbenchClient() {
     () => templates.find((template) => template.id === templateId) ?? null,
     [templateId, templates],
   );
+  const selectedTemplateMissingVariables = selectedTemplate
+    ? missingTemplateVariables(selectedTemplate, templateVariableValues)
+    : [];
+  const estimatedQuotaCost = quantity;
+  const sourceImagePurposeLabels =
+    sourceFiles.length > 0
+      ? sourceFiles.map(inferSourceImagePurpose)
+      : sourceImageIds.length > 0
+      ? ["历史图片"]
+      : [];
   const activeFixedPromptEnabled = Boolean(activeConversation?.fixedPromptEnabled && activeConversation.fixedPrompt);
   const hasChatPrimaryAttachment = chatAttachments.some((attachment) => attachment.role === "primary");
   const activeConversationPromptKey = activeConversation?.id ?? "";
@@ -306,9 +361,12 @@ export function WorkbenchClient() {
     setTemplateId(nextTemplateId);
     const template = templates.find((item) => item.id === nextTemplateId);
     if (!template) {
+      setTemplateVariableValues({});
       return;
     }
-    setPrompt(template.defaultPrompt);
+    const nextValues = defaultValuesForTemplate(template);
+    setTemplateVariableValues(nextValues);
+    setPrompt(renderTemplatePrompt(template, nextValues));
     setNegativePrompt(template.defaultNegativePrompt ?? "");
     setSize(normalizeImageSizeOption(template.defaultSize));
     setReferenceStrength(template.defaultReferenceStrength);
@@ -316,6 +374,47 @@ export function WorkbenchClient() {
     if (template.sourceImageId) {
       setSourceImageIds([template.sourceImageId]);
       setSourcePreviews([]);
+    }
+  }
+
+  function updateTemplateVariable(variable: TemplateVariableDefinition, value: string): void {
+    if (!selectedTemplate) {
+      return;
+    }
+    setTemplateVariableValues((current) => {
+      const nextValues = { ...current, [variable.key]: value };
+      setPrompt(renderTemplatePrompt(selectedTemplate, nextValues));
+      return nextValues;
+    });
+  }
+
+  async function optimizePrompt(): Promise<void> {
+    if (!prompt.trim()) {
+      setError("先选择模板或填写一句基础描述，再优化提示词。");
+      return;
+    }
+    setPromptOptimizing(true);
+    setError("");
+    setMessage("正在用 AI 优化提示词...");
+    try {
+      const payload = await apiJson<PromptOptimizerResponse>("/api/prompt-optimizer", {
+        method: "POST",
+        body: JSON.stringify({
+          prompt,
+          mode,
+          sizeLabel: imageSizeLabels[size],
+          templateName: selectedTemplate?.name ?? null,
+          templateDescription: selectedTemplate?.description ?? null,
+          variables: templateVariableValues,
+        }),
+      });
+      setPrompt(payload.prompt);
+      setMessage("AI 已优化提示词。");
+    } catch (caught) {
+      setPrompt(improvePromptText(prompt, selectedTemplate, imageSizeLabels[size]));
+      setError(caught instanceof Error ? `${caught.message} 已先使用本地规则优化。` : "AI 优化失败，已先使用本地规则优化。");
+    } finally {
+      setPromptOptimizing(false);
     }
   }
 
@@ -598,6 +697,10 @@ export function WorkbenchClient() {
   }
 
   async function submitTask(): Promise<void> {
+    if (selectedTemplateMissingVariables.length > 0) {
+      setError(`请先填写模板变量：${selectedTemplateMissingVariables.join("、")}`);
+      return;
+    }
     if (!prompt.trim()) {
       setError("请输入 prompt 后再生成");
       return;
@@ -958,10 +1061,79 @@ export function WorkbenchClient() {
               </select>
             </div>
 
-            {selectedTemplate ? <span className="badge">{selectedTemplate.description || "模板参数已填入"}</span> : null}
+            {selectedTemplate ? (
+              <div className="template-production-card">
+                <div>
+                  <span className="badge">{selectedTemplate.category === "platform" ? "生产模板" : "模板"}</span>
+                  <strong>{selectedTemplate.name}</strong>
+                </div>
+                <p>{selectedTemplate.description || "选择模板后会自动套用比例、负面词和风格参数。"}</p>
+                <span>{imageSizeLabels[normalizeImageSizeOption(selectedTemplate.defaultSize)]}</span>
+              </div>
+            ) : null}
+
+            {selectedTemplate?.templateVariables.length ? (
+              <div className="template-variable-panel">
+                <div className="template-variable-heading">
+                  <strong>填写生产参数</strong>
+                  <span>填表后自动生成最终 Prompt</span>
+                </div>
+                {selectedTemplate.templateVariables.map((variable) => (
+                  <div className="field" key={variable.key}>
+                    <label htmlFor={`template-variable-${variable.key}`}>
+                      {variable.label}
+                      {variable.required ? <span className="required-mark"> *</span> : null}
+                    </label>
+                    {variable.type === "textarea" ? (
+                      <textarea
+                        id={`template-variable-${variable.key}`}
+                        className="textarea compact-textarea"
+                        value={templateVariableValues[variable.key] ?? ""}
+                        placeholder={variable.placeholder ?? undefined}
+                        onChange={(event) => updateTemplateVariable(variable, event.target.value)}
+                      />
+                    ) : variable.type === "select" ? (
+                      <select
+                        id={`template-variable-${variable.key}`}
+                        className="select"
+                        value={templateVariableValues[variable.key] ?? ""}
+                        onChange={(event) => updateTemplateVariable(variable, event.target.value)}
+                      >
+                        <option value="">请选择</option>
+                        {variable.options.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        id={`template-variable-${variable.key}`}
+                        className="input"
+                        value={templateVariableValues[variable.key] ?? ""}
+                        placeholder={variable.placeholder ?? undefined}
+                        onChange={(event) => updateTemplateVariable(variable, event.target.value)}
+                      />
+                    )}
+                    {variable.helperText ? <small>{variable.helperText}</small> : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
             <div className="field">
-              <label htmlFor="prompt">Prompt</label>
+              <div className="field-label-row">
+                <label htmlFor="prompt">{selectedTemplate ? "最终 Prompt" : "Prompt"}</label>
+                <button
+                  className="button subtle mini-button"
+                  type="button"
+                  onClick={() => void optimizePrompt()}
+                  disabled={promptOptimizing}
+                >
+                  <Sparkles size={13} aria-hidden="true" />
+                  {promptOptimizing ? "优化中" : "优化提示词"}
+                </button>
+              </div>
               <textarea
                 id="prompt"
                 className="textarea"
@@ -1007,6 +1179,14 @@ export function WorkbenchClient() {
                   </button>
                   <span>也可以直接把图片拖到上方区域</span>
                 </div>
+                {sourceImagePurposeLabels.length > 0 ? (
+                  <div className="source-purpose-row">
+                    <span>自动识别用途</span>
+                    {sourceImagePurposeLabels.map((label, index) => (
+                      <strong key={`${label}-${index}`}>{label}</strong>
+                    ))}
+                  </div>
+                ) : null}
                 <input
                   ref={fileInputRef}
                   className="input"
@@ -1099,6 +1279,11 @@ export function WorkbenchClient() {
               <Send size={16} aria-hidden="true" />
               {busy ? "提交中" : "生成"}
             </button>
+
+            <div className="quota-hint">
+              本次预计消耗 <strong>{estimatedQuotaCost}</strong> 次额度
+              {selectedTemplate ? <span> · {selectedTemplate.name}</span> : null}
+            </div>
 
             <div className={clsx("toast-line", error && "error")}>{error || message}</div>
           </div>

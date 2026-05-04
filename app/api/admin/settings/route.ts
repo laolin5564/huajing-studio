@@ -42,6 +42,9 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     if (input.imageModel) {
       setAppSetting("image_model", input.imageModel);
     }
+    if (input.promptOptimizerModel) {
+      setAppSetting("prompt_optimizer_model", input.promptOptimizerModel);
+    }
     if (input.imageConcurrency !== undefined) {
       setAppSetting("image_concurrency", String(input.imageConcurrency));
     }

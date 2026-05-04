@@ -1,0 +1,369 @@
+import type { ImageProvider, OpenAIOAuthAccountRow } from "./types";
+
+export interface PromptOptimizationInput {
+  prompt: string;
+  mode: string;
+  sizeLabel: string;
+  templateName: string | null;
+  templateDescription: string | null;
+  variables: Record<string, string>;
+}
+
+interface ResponsesPayload {
+  output_text?: string;
+  output?: Array<{
+    content?: Array<{
+      text?: string;
+      type?: string;
+    }>;
+  }>;
+}
+
+interface ChatCompletionsPayload {
+  choices?: Array<{
+    message?: {
+      content?: string;
+    };
+  }>;
+}
+
+interface PromptOptimizerRuntimeSettings {
+  provider: ImageProvider;
+  baseUrl: string;
+  bearerToken: string;
+  model: string;
+  openaiOAuthProxyUrl?: string | null;
+  oauthAccountId?: string | null;
+  chatGPTAccountId?: string | null;
+}
+
+const openAIChatGPTCodexResponsesUrl = "https://chatgpt.com/backend-api/codex/responses";
+const openAICodexUserAgent = "codex_cli_rs/0.125.0";
+
+const promptOptimizerSystemPrompt = [
+  "你是 Canvas Realm Studio 的 GPT-image-2 生产提示词总监。",
+  "你的任务是把用户的中文图片生成 prompt 优化成可直接用于生产的最终 prompt。",
+  "只输出 JSON：{\"prompt\":\"...\"}，不要解释，不要 Markdown。",
+  "优化原则：",
+  "1. 保留用户原意，不虚构品牌、产品、人物身份或具体文字。",
+  "2. 把提示词整理为场景、主体、构图、安全区、材质光影、输出约束。",
+  "3. 空变量不要写入最终 prompt，不要出现占位符、变量名或“可为空”。",
+  "4. 电商图强调产品轮廓、材质、真实阴影和干净背景。",
+  "5. 封面图强调标题安全区、主体不要贴边、适合平台信息流裁切。",
+  "6. 海报图强调单一强主视觉、信息层级、色调统一，避免杂乱拼贴。",
+  "7. 避免文字乱码、多余小字、低清晰度、廉价促销感、畸形结构。",
+].join("\n");
+
+export function buildPromptOptimizerUserPrompt(input: PromptOptimizationInput): string {
+  const variables = Object.entries(input.variables)
+    .filter(([, value]) => value.trim())
+    .map(([key, value]) => `${key}: ${value.trim()}`)
+    .join("\n");
+
+  return [
+    `生成模式：${input.mode}`,
+    `目标规格：${input.sizeLabel}`,
+    input.templateName ? `生产模板：${input.templateName}` : "",
+    input.templateDescription ? `模板说明：${input.templateDescription}` : "",
+    variables ? `已填写变量：\n${variables}` : "",
+    "当前 prompt：",
+    input.prompt,
+  ].filter(Boolean).join("\n\n");
+}
+
+export function extractOptimizedPrompt(payload: unknown): string {
+  const maybeJson = extractTextPayload(payload).trim();
+  if (!maybeJson) {
+    throw new Error("提示词优化模型返回为空");
+  }
+
+  const fenced = maybeJson.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim();
+  const raw = fenced || maybeJson;
+  try {
+    const parsed = JSON.parse(raw) as { prompt?: unknown };
+    if (typeof parsed.prompt === "string" && parsed.prompt.trim()) {
+      return parsed.prompt.trim();
+    }
+  } catch {
+    // Some compatible providers ignore the JSON-only instruction. Plain text is still useful.
+  }
+
+  return raw.trim();
+}
+
+function extractTextPayload(payload: unknown): string {
+  const responsesPayload = payload as ResponsesPayload;
+  if (typeof responsesPayload.output_text === "string") {
+    return responsesPayload.output_text;
+  }
+
+  const responseText = responsesPayload.output
+    ?.flatMap((item) => item.content ?? [])
+    .map((content) => content.text)
+    .filter((text): text is string => Boolean(text))
+    .join("\n");
+  if (responseText) {
+    return responseText;
+  }
+
+  const chatPayload = payload as ChatCompletionsPayload;
+  return chatPayload.choices?.[0]?.message?.content ?? "";
+}
+
+export async function optimizePromptWithModel(input: PromptOptimizationInput): Promise<string> {
+  const settings = await resolvePromptOptimizerRuntimeSettings();
+  const userPrompt = buildPromptOptimizerUserPrompt(input);
+
+  if (settings.provider === "openai_oauth") {
+    return requestOpenAIOAuthPromptOptimization(settings, userPrompt);
+  }
+
+  const responsesError = await requestResponsesApi(settings.baseUrl, settings.model, settings.bearerToken, userPrompt)
+    .then((payload) => {
+      throw new OptimizedPromptResult(extractOptimizedPrompt(payload));
+    })
+    .catch((error: unknown) => error);
+
+  if (responsesError instanceof OptimizedPromptResult) {
+    return responsesError.prompt;
+  }
+
+  const shouldFallbackToChat =
+    responsesError instanceof PromptOptimizerHttpError &&
+    [400, 404, 405].includes(responsesError.status);
+
+  if (!shouldFallbackToChat && responsesError instanceof Error) {
+    throw responsesError;
+  }
+
+  const payload = await requestChatCompletionsApi(settings.baseUrl, settings.model, settings.bearerToken, userPrompt);
+  return extractOptimizedPrompt(payload);
+}
+
+async function resolvePromptOptimizerRuntimeSettings(): Promise<PromptOptimizerRuntimeSettings> {
+  const [{ appConfig }, db] = await Promise.all([
+    import("./config"),
+    import("./db"),
+  ]);
+  const imageSettings = db.getRuntimeImageSettings();
+  const promptSettings = db.getPromptOptimizerSettings();
+
+  if (imageSettings.imageProvider === "openai_oauth") {
+    const account = db.getUsableOpenAIOAuthAccount();
+    if (!account) {
+      throw new Error("已选择 OpenAI OAuth 模式，但后台没有可用 OpenAI 账号");
+    }
+    return {
+      provider: "openai_oauth",
+      baseUrl: appConfig.openaiOAuthApiBaseUrl.replace(/\/+$/, ""),
+      bearerToken: await getFreshOpenAIAccessTokenForPrompt(account, imageSettings.openaiOAuthProxyUrl),
+      model: promptSettings.model,
+      openaiOAuthProxyUrl: imageSettings.openaiOAuthProxyUrl,
+      oauthAccountId: account.id,
+      chatGPTAccountId: account.account_id,
+    };
+  }
+
+  if (!imageSettings.sub2apiApiKey) {
+    throw new Error("图片接口 API Key 未配置，无法优化提示词。");
+  }
+
+  return {
+    provider: "sub2api",
+    baseUrl: imageSettings.sub2apiBaseUrl.replace(/\/+$/, ""),
+    bearerToken: imageSettings.sub2apiApiKey,
+    model: promptSettings.model,
+  };
+}
+
+async function getFreshOpenAIAccessTokenForPrompt(
+  account: OpenAIOAuthAccountRow,
+  proxyUrl?: string | null,
+): Promise<string> {
+  const [oauth, db] = await Promise.all([
+    import("./openai-oauth"),
+    import("./db"),
+  ]);
+
+  if (!oauth.shouldRefreshOpenAIToken(account.expires_at)) {
+    return oauth.decryptToken(account.access_token_ciphertext);
+  }
+
+  try {
+    const currentRefreshToken = oauth.decryptToken(account.refresh_token_ciphertext);
+    const refreshed = await oauth.refreshOpenAIOAuthToken({
+      refreshToken: currentRefreshToken,
+      clientId: account.client_id,
+      proxyUrl,
+    });
+    const userInfo = oauth.decodeOpenAIIdToken(refreshed.id_token);
+    const nextRefreshToken = refreshed.refresh_token || currentRefreshToken;
+    db.updateOpenAIOAuthAccountTokens(account.id, {
+      accessTokenCiphertext: oauth.encryptToken(refreshed.access_token),
+      refreshTokenCiphertext: oauth.encryptToken(nextRefreshToken),
+      expiresAt: oauth.tokenExpiresAt(refreshed.expires_in),
+      email: userInfo.email,
+      accountId: userInfo.accountId,
+      userId: userInfo.userId,
+      organizationId: userInfo.organizationId,
+      planType: userInfo.planType,
+    });
+    return refreshed.access_token;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "OpenAI OAuth token refresh failed";
+    db.updateOpenAIOAuthAccountStatus(account.id, "error", message);
+    throw new Error(`OpenAI OAuth token 刷新失败：${message}`);
+  }
+}
+
+async function requestResponsesApi(baseUrl: string, model: string, apiKey: string, userPrompt: string): Promise<unknown> {
+  const response = await fetch(`${baseUrl}/responses`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      input: [
+        { role: "system", content: [{ type: "input_text", text: promptOptimizerSystemPrompt }] },
+        { role: "user", content: [{ type: "input_text", text: userPrompt }] },
+      ],
+    }),
+  });
+  return readOptimizerResponse(response, "Responses");
+}
+
+async function requestChatCompletionsApi(baseUrl: string, model: string, apiKey: string, userPrompt: string): Promise<unknown> {
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: promptOptimizerSystemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.25,
+    }),
+  });
+  return readOptimizerResponse(response, "Chat Completions");
+}
+
+async function requestOpenAIOAuthPromptOptimization(
+  settings: PromptOptimizerRuntimeSettings,
+  userPrompt: string,
+): Promise<string> {
+  const { fetchWithOptionalProxy } = await import("./proxy");
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${settings.bearerToken}`,
+    "Content-Type": "application/json",
+    Accept: "text/event-stream",
+    "OpenAI-Beta": "responses=experimental",
+    originator: "codex_cli_rs",
+    "User-Agent": openAICodexUserAgent,
+  };
+  if (settings.chatGPTAccountId) {
+    headers["chatgpt-account-id"] = settings.chatGPTAccountId;
+  }
+
+  const response = await fetchWithOptionalProxy(openAIChatGPTCodexResponsesUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      instructions: promptOptimizerSystemPrompt,
+      stream: true,
+      reasoning: { effort: "medium", summary: "auto" },
+      parallel_tool_calls: true,
+      include: ["reasoning.encrypted_content"],
+      model: settings.model,
+      store: false,
+      input: [
+        {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: userPrompt }],
+        },
+      ],
+    }),
+  }, settings.openaiOAuthProxyUrl);
+
+  const text = await response.text();
+  if (!response.ok) {
+    const message = `提示词优化调用失败（OpenAI OAuth ${response.status}）：${text.slice(0, 500)}`;
+    if (response.status === 401 && settings.oauthAccountId) {
+      const { updateOpenAIOAuthAccountStatus } = await import("./db");
+      updateOpenAIOAuthAccountStatus(settings.oauthAccountId, "error", message);
+    }
+    throw new Error(message);
+  }
+
+  return extractOptimizedPrompt(extractOpenAIOAuthTextPayload(text));
+}
+
+function extractOpenAIOAuthTextPayload(streamText: string): unknown {
+  let outputText = "";
+  let lastJson: unknown = null;
+  for (const line of streamText.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) {
+      continue;
+    }
+    const data = trimmed.slice("data:".length).trim();
+    if (!data || data === "[DONE]") {
+      continue;
+    }
+    try {
+      const payload = JSON.parse(data) as {
+        type?: string;
+        delta?: string;
+        response?: unknown;
+      };
+      lastJson = payload;
+      if (payload.type === "response.output_text.delta" && typeof payload.delta === "string") {
+        outputText += payload.delta;
+      }
+      if (payload.type === "response.completed" && payload.response) {
+        const completedText = extractTextPayload(payload.response);
+        if (completedText) {
+          outputText += completedText;
+        }
+      }
+    } catch {
+      // Ignore non-JSON SSE payloads.
+    }
+  }
+  return outputText ? { output_text: outputText } : lastJson;
+}
+
+async function readOptimizerResponse(response: Response, endpoint: string): Promise<unknown> {
+  const text = await response.text();
+  if (!response.ok) {
+    throw new PromptOptimizerHttpError(
+      `提示词优化调用失败（${endpoint} ${response.status}）：${text.slice(0, 500)}`,
+      response.status,
+    );
+  }
+  return text ? JSON.parse(text) : {};
+}
+
+class OptimizedPromptResult extends Error {
+  prompt: string;
+
+  constructor(prompt: string) {
+    super("optimized prompt ready");
+    this.prompt = prompt;
+  }
+}
+
+class PromptOptimizerHttpError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}

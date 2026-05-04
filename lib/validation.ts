@@ -7,12 +7,29 @@ import {
   taskStatuses,
   templateCategories,
   templateScopes,
+  templateVariableTypes,
   userRoles,
 } from "./types";
 
 const nullableString = z
   .union([z.string(), z.null(), z.undefined()])
   .transform((value) => (value && value.trim() !== "" ? value.trim() : null));
+
+const templateVariableOptionSchema = z.object({
+  label: z.string().trim().min(1).max(40),
+  value: z.string().trim().min(1).max(120),
+});
+
+export const templateVariableSchema = z.object({
+  key: z.string().trim().min(1).max(40),
+  label: z.string().trim().min(1).max(40),
+  type: z.enum(templateVariableTypes).default("text"),
+  required: z.boolean().default(false),
+  placeholder: nullableString,
+  defaultValue: nullableString,
+  helperText: nullableString,
+  options: z.array(templateVariableOptionSchema).max(12).default([]),
+});
 
 export const createGenerationTaskSchema = z
   .object({
@@ -86,6 +103,7 @@ export const createTemplateSchema = z.object({
   defaultReferenceStrength: z.coerce.number().min(0).max(1).default(0.6),
   defaultStyleStrength: z.coerce.number().min(0).max(1).default(0.7),
   sourceImageId: nullableString,
+  templateVariables: z.array(templateVariableSchema).max(12).default([]),
 });
 
 export const updateTemplateSchema = createTemplateSchema.partial().extend({
@@ -129,6 +147,7 @@ export const updateAdminSettingsSchema = z.object({
   sub2apiBaseUrl: z.string().trim().url().max(300).optional(),
   openaiOAuthProxyUrl: z.union([z.string().trim().max(500), z.null()]).optional(),
   imageModel: z.string().trim().min(1).max(100).optional(),
+  promptOptimizerModel: z.string().trim().min(1).max(100).optional(),
   imageConcurrency: z.coerce.number().int().min(imageConcurrencyLimits.min).max(imageConcurrencyLimits.max).optional(),
   imageRetentionDays: z.coerce.number().int().min(0).max(3650).optional(),
   siteTitle: z.string().trim().min(1).max(80).optional(),
@@ -170,6 +189,15 @@ export const createTemplateFromConversationPromptSchema = z.object({
   name: z.string().trim().min(1, "模板名称不能为空").max(80),
   category: z.enum(templateCategories).default("company"),
   description: nullableString,
+});
+
+export const optimizePromptSchema = z.object({
+  prompt: z.string().trim().min(1, "prompt 不能为空").max(8000),
+  mode: z.enum(generationModes).default("text_to_image"),
+  sizeLabel: z.string().trim().max(80).default("不限制"),
+  templateName: nullableString,
+  templateDescription: nullableString,
+  variables: z.record(z.string().trim().max(80), z.string().trim().max(1000)).default({}),
 });
 
 export const registerSchema = z.object({

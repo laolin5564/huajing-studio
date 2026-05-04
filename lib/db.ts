@@ -33,6 +33,7 @@ import type {
   TaskProgressStage,
   TaskStatus,
   TemplateCategory,
+  TemplateVariableDefinition,
   TemplateRow,
   TemplateScope,
   UserGroupRow,
@@ -71,6 +72,7 @@ export interface CreateTemplateInput {
   defaultReferenceStrength: number;
   defaultStyleStrength: number;
   sourceImageId: string | null;
+  templateVariables?: TemplateVariableDefinition[];
 }
 
 export interface UpdateTemplateInput {
@@ -83,6 +85,7 @@ export interface UpdateTemplateInput {
   defaultReferenceStrength?: number;
   defaultStyleStrength?: number;
   sourceImageId?: string | null;
+  templateVariables?: TemplateVariableDefinition[];
 }
 
 export interface ListImagesInput {
@@ -130,6 +133,7 @@ type AppSettingKey =
   | "sub2api_base_url"
   | "openai_oauth_proxy_url"
   | "image_model"
+  | "prompt_optimizer_model"
   | "image_concurrency"
   | "image_timeout_streak"
   | "image_auto_degraded_at"
@@ -140,32 +144,71 @@ type AppSettingKey =
   | "registration_default_group_id"
   | "registration_default_quota";
 
+function templateTextVariable(
+  key: string,
+  label: string,
+  options: Partial<TemplateVariableDefinition> = {},
+): TemplateVariableDefinition {
+  return {
+    key,
+    label,
+    type: options.type ?? "text",
+    required: options.required ?? false,
+    placeholder: options.placeholder ?? null,
+    defaultValue: options.defaultValue ?? null,
+    helperText: options.helperText ?? null,
+    options: options.options ?? [],
+  };
+}
+
 const builtInTemplates: Array<CreateTemplateInput & { id: string }> = [
   {
     id: "tpl_use_product_scene",
     name: "商品场景图",
     category: "use_case",
-    description: "适合电商商品主图、详情页素材和场景氛围图。",
+    description: "把商品处理成可直接用于电商展示的干净商业摄影图。",
     defaultPrompt:
-      "一张简约高级的商品场景图，主体清晰，白色背景，柔和自然光，真实摄影质感，留白充足",
+      "生成一张电商商品场景图，真实商业摄影质感。产品名称：{产品名称}。标题文案：{标题文案}。品牌风格：{品牌风格}。背景风格：{背景风格}。构图要求：主体占画面 65%-75%，轮廓完整，边缘清晰，材质和真实阴影可见，背景干净，留出电商上架可用的呼吸感。灯光要求：柔和棚拍光、轻微轮廓光、不过曝。输出要求：高清、自然、不要多余文字、不要复杂道具、不要廉价促销感。",
     defaultNegativePrompt: "低清晰度，模糊，变形，多余文字，杂乱背景",
     defaultSize: "ecommerce_main_1_1",
     defaultReferenceStrength: 0.65,
     defaultStyleStrength: 0.7,
     sourceImageId: null,
+    templateVariables: [
+      templateTextVariable("产品名称", "产品名称", { required: true, placeholder: "例如：桌面空气净化器" }),
+      templateTextVariable("品牌风格", "品牌风格", { placeholder: "例如：极简、科技、轻奢、自然" }),
+      templateTextVariable("背景风格", "背景风格", { placeholder: "例如：白底、浅灰空间、家居台面" }),
+      templateTextVariable("标题文案", "标题文案", { placeholder: "可留空，留空则不生成文字" }),
+    ],
   },
   {
     id: "tpl_use_campaign_poster",
     name: "活动海报",
     category: "use_case",
-    description: "适合活动、促销、品牌传播的简洁海报底图。",
+    description: "适合促销、发布会、品牌活动的可加标题海报底图。",
     defaultPrompt:
-      "一张现代极简活动海报，清爽构图，视觉中心明确，高级商业质感，适合叠加中文标题",
+      "生成一张活动海报，现代商业视觉。目标平台：{目标平台}。活动主题：{活动主题}。标题文案：{标题文案}。品牌风格：{品牌风格}。背景风格：{背景风格}。构图要求：单一强主视觉，主体和标题区层级明确，顶部或中部预留大标题安全区，边缘留白充足。画面要求：高级、清爽、有传播感，色调统一，适合后期叠加中文标题。输出要求：不要杂乱拼贴、不要错误文字、不要廉价促销感。",
     defaultNegativePrompt: "廉价促销风，文字乱码，低质感，过度装饰",
     defaultSize: "poster_2_3",
     defaultReferenceStrength: 0.55,
     defaultStyleStrength: 0.75,
     sourceImageId: null,
+    templateVariables: [
+      templateTextVariable("活动主题", "活动主题", { required: true, placeholder: "例如：618 新品限时活动" }),
+      templateTextVariable("标题文案", "标题文案", { placeholder: "例如：新品上市 / 限时福利" }),
+      templateTextVariable("目标平台", "目标平台", {
+        type: "select",
+        defaultValue: "通用海报",
+        options: [
+          { label: "通用海报", value: "通用海报" },
+          { label: "抖音", value: "抖音" },
+          { label: "小红书", value: "小红书" },
+          { label: "公众号", value: "公众号" },
+        ],
+      }),
+      templateTextVariable("品牌风格", "品牌风格", { placeholder: "例如：科技感、年轻活力、轻奢" }),
+      templateTextVariable("背景风格", "背景风格", { placeholder: "例如：渐变光影、展台空间、节日氛围" }),
+    ],
   },
   {
     id: "tpl_use_avatar",
@@ -173,51 +216,149 @@ const builtInTemplates: Array<CreateTemplateInput & { id: string }> = [
     category: "use_case",
     description: "适合品牌账号、人物头像和社媒形象。",
     defaultPrompt:
-      "一个干净现代的品牌头像，中心构图，柔和光影，细节清晰，社交媒体头像风格",
+      "生成一个干净现代的品牌头像，适合社交媒体账号使用。品牌名称：{品牌名称}。品牌风格：{品牌风格}。图形方向：{图形方向}。构图要求：中心构图，主体占比清晰，边缘完整，小尺寸下仍然可辨认。视觉要求：几何关系稳定，颜色克制，有品牌识别度，不要复杂背景，不要多余文字。",
     defaultNegativePrompt: "夸张表情，低清晰度，比例错误，复杂背景",
     defaultSize: "ecommerce_main_1_1",
     defaultReferenceStrength: 0.6,
     defaultStyleStrength: 0.7,
     sourceImageId: null,
+    templateVariables: [
+      templateTextVariable("品牌名称", "品牌名称", { placeholder: "例如：Canvas Realm" }),
+      templateTextVariable("品牌风格", "品牌风格", { placeholder: "例如：极简、温暖、科技、专业" }),
+      templateTextVariable("图形方向", "图形方向", { placeholder: "例如：抽象符号、字母标、产品轮廓" }),
+    ],
   },
   {
     id: "tpl_platform_xhs_cover",
     name: "小红书封面",
     category: "platform",
-    description: "适合小红书笔记首图和种草封面。",
+    description: "3:4 首图封面，偏生活感、干净明亮、保留标题区。",
     defaultPrompt:
-      "一张小红书封面图，明亮干净，主体突出，生活方式质感，构图适合叠加醒目标题",
+      "生成一张小红书笔记封面图，3:4 竖版首图。内容主题：{内容主题}。标题文案：{标题文案}。主体描述：{主体描述}。品牌风格：{品牌风格}。背景风格：{背景风格}。构图要求：第一眼能看懂主题，主体位于中上区域，标题安全区清晰，文字区域不要压住主体。画面要求：明亮干净，生活方式质感，真实自然，留白舒服，适合信息流点击。输出要求：高清、可发布、不要低质营销感、不要拥挤排版。",
     defaultNegativePrompt: "字体乱码，拥挤，低质感，过暗，过度锐化",
     defaultSize: "xhs_cover_3_4",
     defaultReferenceStrength: 0.6,
     defaultStyleStrength: 0.72,
     sourceImageId: null,
+    templateVariables: [
+      templateTextVariable("内容主题", "内容主题", { required: true, placeholder: "例如：春季通勤包推荐" }),
+      templateTextVariable("标题文案", "标题文案", { placeholder: "例如：通勤包怎么选" }),
+      templateTextVariable("主体描述", "主体描述", { placeholder: "例如：一只米白色托特包" }),
+      templateTextVariable("品牌风格", "品牌风格", { placeholder: "例如：温柔、生活感、清爽" }),
+      templateTextVariable("背景风格", "背景风格", { placeholder: "例如：咖啡桌、卧室、街角自然光" }),
+    ],
   },
   {
     id: "tpl_platform_wechat_header",
-    name: "公众号头图",
+    name: "公众号封面图",
     category: "platform",
-    description: "适合公众号文章头图和品牌内容封面。",
+    description: "2.35:1 横版封面，强调文章标题区和信息流裁切安全。",
     defaultPrompt:
-      "一张公众号文章头图，横版构图，克制科技感，留白充分，适合叠加文章标题",
+      "生成一张公众号文章封面图，横版构图，比例约 2.35:1，适合微信文章列表和分享卡片。文章主题：{文章主题}。标题文案：{标题文案}。主体元素：{主体元素}。品牌风格：{品牌风格}。背景风格：{背景风格}。构图要求：主视觉靠左或靠右，另一侧预留干净标题安全区，主体不要贴边，边缘留足裁切安全边距。画面要求：克制、专业、高级编辑封面感，信息密度适中，适合公众号信息流展示。输出要求：高清、干净、不要生成无意义小字、不要廉价模板感。",
     defaultNegativePrompt: "密集文字，画面拥挤，低清晰度，强烈眩光",
     defaultSize: "wechat_cover_235_1",
     defaultReferenceStrength: 0.55,
     defaultStyleStrength: 0.68,
     sourceImageId: null,
+    templateVariables: [
+      templateTextVariable("文章主题", "文章主题", { required: true, placeholder: "例如：AI 图片工作流升级指南" }),
+      templateTextVariable("标题文案", "标题文案", { placeholder: "可留空，后期手动加字" }),
+      templateTextVariable("主体元素", "主体元素", { placeholder: "例如：抽象光束、产品轮廓、办公桌面" }),
+      templateTextVariable("品牌风格", "品牌风格", { placeholder: "例如：理性、科技、克制、商业" }),
+      templateTextVariable("背景风格", "背景风格", { placeholder: "例如：抽象光影、办公空间、极简展台" }),
+    ],
   },
   {
     id: "tpl_platform_douyin_cover",
     name: "抖音封面",
     category: "platform",
-    description: "适合短视频封面和竖版广告素材。",
+    description: "9:16 竖版封面，强对比、主体居中、适合标题叠加。",
     defaultPrompt:
-      "一张竖版短视频封面，主体强烈，背景干净，冲击力强但不杂乱，适合叠加标题",
+      "生成一张抖音短视频封面，9:16 竖版。视频主题：{视频主题}。标题文案：{标题文案}。主体描述：{主体描述}。情绪氛围：{情绪氛围}。构图要求：主体居中偏上，脸部或产品足够大，顶部和中部保留醒目标题安全区，底部避开平台 UI 区域。画面要求：强对比、第一眼抓人、背景干净、信息层级明确。输出要求：高清锐利，不要杂乱直播间感，不要无意义文字。",
     defaultNegativePrompt: "杂乱背景，低清晰度，变形，文字乱码",
     defaultSize: "douyin_cover_9_16",
     defaultReferenceStrength: 0.58,
     defaultStyleStrength: 0.76,
     sourceImageId: null,
+    templateVariables: [
+      templateTextVariable("视频主题", "视频主题", { required: true, placeholder: "例如：新手 3 步拍出高级产品图" }),
+      templateTextVariable("标题文案", "标题文案", { placeholder: "例如：3步拍出高级感" }),
+      templateTextVariable("主体描述", "主体描述", { placeholder: "例如：拿着相机的年轻创作者" }),
+      templateTextVariable("情绪氛围", "情绪氛围", {
+        type: "select",
+        defaultValue: "强冲击",
+        options: [
+          { label: "强冲击", value: "强冲击" },
+          { label: "高级冷静", value: "高级冷静" },
+          { label: "轻松生活感", value: "轻松生活感" },
+          { label: "专业可信", value: "专业可信" },
+        ],
+      }),
+    ],
+  },
+  {
+    id: "tpl_platform_ecommerce_main",
+    name: "电商主图",
+    category: "platform",
+    description: "1:1 白底或浅背景主图，突出产品占比、材质和阴影。",
+    defaultPrompt:
+      "生成一张电商主图，1:1 方图。产品名称：{产品名称}。产品卖点：{产品卖点}。品牌风格：{品牌风格}。背景风格：{背景风格}。构图要求：产品占画面 70%-80%，完整展示轮廓，正面或 3/4 角度，边缘清晰，适合电商货架浏览。材质与灯光：真实材质细节，柔光棚拍，轻微轮廓光，真实接触阴影。输出要求：白底或浅色干净背景，不要多余文字，不要复杂道具，不要产品变形。",
+    defaultNegativePrompt: "杂乱背景，过度装饰，产品变形，边缘缺失，低清晰度，文字乱码",
+    defaultSize: "ecommerce_main_1_1",
+    defaultReferenceStrength: 0.72,
+    defaultStyleStrength: 0.64,
+    sourceImageId: null,
+    templateVariables: [
+      templateTextVariable("产品名称", "产品名称", { required: true, placeholder: "例如：便携榨汁杯" }),
+      templateTextVariable("产品卖点", "产品卖点", { type: "textarea", placeholder: "例如：无线便携、易清洗、磨砂质感" }),
+      templateTextVariable("品牌风格", "品牌风格", { placeholder: "例如：极简科技、轻奢、母婴友好" }),
+      templateTextVariable("背景风格", "背景风格", {
+        type: "select",
+        defaultValue: "纯白背景",
+        options: [
+          { label: "纯白背景", value: "纯白背景" },
+          { label: "浅灰摄影棚", value: "浅灰摄影棚" },
+          { label: "柔和家居台面", value: "柔和家居台面" },
+          { label: "高级展台空间", value: "高级展台空间" },
+        ],
+      }),
+    ],
+  },
+  {
+    id: "tpl_platform_product_detail",
+    name: "商品详情图",
+    category: "platform",
+    description: "适合卖点解释、局部特写和详情页视觉模块。",
+    defaultPrompt:
+      "生成一张商品详情页视觉图。详情图比例：{详情图比例}。产品名称：{产品名称}。核心卖点：{核心卖点}。展示方式：{展示方式}。品牌风格：{品牌风格}。构图要求：围绕一个卖点组织画面，主体清晰，局部细节真实，预留短说明文字区。画面要求：高级电商详情页质感，背景干净，信息层级清楚，不要把文字和图标塞满画面。输出要求：高清、可信、产品不变形。",
+    defaultNegativePrompt: "文字乱码，信息拥挤，产品变形，低清晰度，廉价促销风",
+    defaultSize: "ecommerce_vertical_3_4",
+    defaultReferenceStrength: 0.68,
+    defaultStyleStrength: 0.68,
+    sourceImageId: null,
+    templateVariables: [
+      templateTextVariable("产品名称", "产品名称", { required: true, placeholder: "例如：人体工学办公椅" }),
+      templateTextVariable("核心卖点", "核心卖点", { required: true, placeholder: "例如：腰部支撑、透气网布、可调扶手" }),
+      templateTextVariable("展示方式", "展示方式", {
+        type: "select",
+        defaultValue: "卖点场景展示",
+        options: [
+          { label: "卖点场景展示", value: "卖点场景展示" },
+          { label: "局部特写", value: "局部特写" },
+          { label: "结构拆解感", value: "结构拆解感" },
+          { label: "使用前后对比", value: "使用前后对比" },
+        ],
+      }),
+      templateTextVariable("详情图比例", "详情图比例", {
+        type: "select",
+        defaultValue: "3:4",
+        options: [
+          { label: "3:4", value: "3:4" },
+          { label: "4:5", value: "4:5" },
+        ],
+      }),
+      templateTextVariable("品牌风格", "品牌风格", { placeholder: "例如：专业、科技、温暖、轻奢" }),
+    ],
   },
 ];
 
@@ -352,6 +493,7 @@ function initializeSchema(database: DatabaseSync): void {
       default_reference_strength REAL NOT NULL DEFAULT 0.6,
       default_style_strength REAL NOT NULL DEFAULT 0.7,
       source_image_id TEXT,
+      template_variables TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -482,6 +624,7 @@ function initializeSchema(database: DatabaseSync): void {
   ensureColumn(database, "generation_tasks", "reference_image_id", "TEXT");
   ensureColumn(database, "generation_tasks", "reference_image_ids", "TEXT");
   ensureColumn(database, "templates", "owner_user_id", "TEXT");
+  ensureColumn(database, "templates", "template_variables", "TEXT");
   ensureColumn(database, "source_images", "user_id", "TEXT");
   ensureColumn(database, "conversations", "user_id", "TEXT");
   ensureColumn(database, "conversations", "fixed_prompt_enabled", "INTEGER NOT NULL DEFAULT 0");
@@ -960,6 +1103,14 @@ export function getImageConcurrencySetting(): number {
   return getRuntimeImageSettings().imageConcurrency;
 }
 
+export function getPromptOptimizerSettings(): {
+  model: string;
+} {
+  return {
+    model: getAppSetting("prompt_optimizer_model") || appConfig.promptOptimizerModel,
+  };
+}
+
 export function getImageRetentionDaysSetting(): number {
   const value = Number(getAppSetting("image_retention_days") ?? 0);
   if (!Number.isFinite(value)) {
@@ -1030,6 +1181,7 @@ export function getRegistrationSettings(): {
 
 export function getPublicAdminSettings(): PublicAdminSettings {
   const settings = getRuntimeImageSettings();
+  const promptOptimizer = getPromptOptimizerSettings();
   const site = getPublicSiteSettings();
   const registration = getRegistrationSettings();
   return {
@@ -1041,6 +1193,7 @@ export function getPublicAdminSettings(): PublicAdminSettings {
     imageModel: settings.imageModel,
     imageConcurrency: settings.imageConcurrency,
     imageRetentionDays: getImageRetentionDaysSetting(),
+    promptOptimizerModel: promptOptimizer.model,
     siteTitle: site.siteTitle,
     siteSubtitle: site.siteSubtitle,
     registrationEnabled: registration.registrationEnabled,
@@ -1055,11 +1208,19 @@ function seedTemplates(database: DatabaseSync): void {
     INSERT OR IGNORE INTO templates (
       id, owner_user_id, name, category, description, default_prompt, default_negative_prompt,
       default_size, default_reference_strength, default_style_strength,
-      source_image_id, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      source_image_id, template_variables, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const updateBuiltIn = database.prepare(`
+    UPDATE templates
+    SET name = ?, category = ?, description = ?, default_prompt = ?,
+      default_negative_prompt = ?, default_size = ?, default_reference_strength = ?,
+      default_style_strength = ?, source_image_id = ?, template_variables = ?, updated_at = ?
+    WHERE id = ? AND owner_user_id IS NULL
   `);
 
   for (const template of builtInTemplates) {
+    const variables = serializeTemplateVariables(template.templateVariables);
     statement.run(
       template.id,
       null,
@@ -1072,9 +1233,70 @@ function seedTemplates(database: DatabaseSync): void {
       template.defaultReferenceStrength,
       template.defaultStyleStrength,
       template.sourceImageId,
+      variables,
       createdAt,
       createdAt,
     );
+    updateBuiltIn.run(
+      template.name,
+      template.category,
+      template.description,
+      template.defaultPrompt,
+      template.defaultNegativePrompt,
+      template.defaultSize,
+      template.defaultReferenceStrength,
+      template.defaultStyleStrength,
+      template.sourceImageId,
+      variables,
+      createdAt,
+      template.id,
+    );
+  }
+}
+
+function serializeTemplateVariables(variables: TemplateVariableDefinition[] | undefined): string | null {
+  if (!variables || variables.length === 0) {
+    return null;
+  }
+  return JSON.stringify(variables.map((variable) => ({
+    key: variable.key,
+    label: variable.label,
+    type: variable.type,
+    required: variable.required,
+    placeholder: variable.placeholder,
+    defaultValue: variable.defaultValue,
+    helperText: variable.helperText,
+    options: variable.options,
+  })));
+}
+
+function parseTemplateVariables(value: string | null): TemplateVariableDefinition[] {
+  if (!value) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(value) as TemplateVariableDefinition[];
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .filter((item) => item && typeof item.key === "string" && typeof item.label === "string")
+      .map((item) => ({
+        key: item.key,
+        label: item.label,
+        type: item.type === "textarea" || item.type === "select" ? item.type : "text",
+        required: Boolean(item.required),
+        placeholder: typeof item.placeholder === "string" ? item.placeholder : null,
+        defaultValue: typeof item.defaultValue === "string" ? item.defaultValue : null,
+        helperText: typeof item.helperText === "string" ? item.helperText : null,
+        options: Array.isArray(item.options)
+          ? item.options
+              .filter((option) => option && typeof option.label === "string" && typeof option.value === "string")
+              .map((option) => ({ label: option.label, value: option.value }))
+          : [],
+      }));
+  } catch {
+    return [];
   }
 }
 
@@ -1883,8 +2105,8 @@ export function createTemplate(input: CreateTemplateInput): TemplateRow {
       INSERT INTO templates (
         id, owner_user_id, name, category, description, default_prompt, default_negative_prompt,
         default_size, default_reference_strength, default_style_strength,
-        source_image_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        source_image_id, template_variables, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     )
     .run(
@@ -1899,6 +2121,7 @@ export function createTemplate(input: CreateTemplateInput): TemplateRow {
       input.defaultReferenceStrength,
       input.defaultStyleStrength,
       input.sourceImageId,
+      serializeTemplateVariables(input.templateVariables),
       createdAt,
       createdAt,
     );
@@ -1927,6 +2150,8 @@ export function updateTemplate(id: string, input: UpdateTemplateInput): Template
     defaultReferenceStrength: input.defaultReferenceStrength ?? existing.default_reference_strength,
     defaultStyleStrength: input.defaultStyleStrength ?? existing.default_style_strength,
     sourceImageId: input.sourceImageId === undefined ? existing.source_image_id : input.sourceImageId,
+    templateVariables:
+      input.templateVariables === undefined ? existing.template_variables : serializeTemplateVariables(input.templateVariables),
   };
 
   getDb()
@@ -1935,7 +2160,7 @@ export function updateTemplate(id: string, input: UpdateTemplateInput): Template
       UPDATE templates
       SET name = ?, category = ?, description = ?, default_prompt = ?,
         default_negative_prompt = ?, default_size = ?, default_reference_strength = ?,
-        default_style_strength = ?, source_image_id = ?, updated_at = ?
+        default_style_strength = ?, source_image_id = ?, template_variables = ?, updated_at = ?
       WHERE id = ?
     `,
     )
@@ -1949,6 +2174,7 @@ export function updateTemplate(id: string, input: UpdateTemplateInput): Template
       merged.defaultReferenceStrength,
       merged.defaultStyleStrength,
       merged.sourceImageId,
+      merged.templateVariables,
       nowIso(),
       id,
     );
@@ -2340,6 +2566,7 @@ export function toPublicTemplate(row: TemplateRow): PublicTemplate {
     defaultReferenceStrength: row.default_reference_strength,
     defaultStyleStrength: row.default_style_strength,
     sourceImageId: row.source_image_id,
+    templateVariables: parseTemplateVariables(row.template_variables),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
