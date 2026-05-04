@@ -34,6 +34,7 @@ import type {
   TaskStatus,
   TemplateCategory,
   TemplateRow,
+  TemplateScope,
   UserGroupRow,
   UserRole,
   UserRow,
@@ -60,6 +61,7 @@ export interface CreateTaskInput {
 }
 
 export interface CreateTemplateInput {
+  ownerUserId?: string | null;
   name: string;
   category: TemplateCategory;
   description: string | null;
@@ -91,6 +93,12 @@ export interface ListImagesInput {
   keyword: string | null;
   page: number;
   pageSize: number;
+}
+
+export interface ListTemplatesInput {
+  userId?: string | null;
+  category?: TemplateCategory | null;
+  scope?: TemplateScope | "all";
 }
 
 export interface ListTasksInput {
@@ -125,6 +133,7 @@ type AppSettingKey =
   | "image_concurrency"
   | "image_timeout_streak"
   | "image_auto_degraded_at"
+  | "image_retention_days"
   | "site_title"
   | "site_subtitle"
   | "registration_enabled"
@@ -333,6 +342,7 @@ function initializeSchema(database: DatabaseSync): void {
 
     CREATE TABLE IF NOT EXISTS templates (
       id TEXT PRIMARY KEY,
+      owner_user_id TEXT,
       name TEXT NOT NULL,
       category TEXT NOT NULL CHECK (category IN ('use_case', 'platform', 'company')),
       description TEXT,
@@ -471,6 +481,7 @@ function initializeSchema(database: DatabaseSync): void {
   ensureColumn(database, "generation_tasks", "requested_concurrency", "INTEGER");
   ensureColumn(database, "generation_tasks", "reference_image_id", "TEXT");
   ensureColumn(database, "generation_tasks", "reference_image_ids", "TEXT");
+  ensureColumn(database, "templates", "owner_user_id", "TEXT");
   ensureColumn(database, "source_images", "user_id", "TEXT");
   ensureColumn(database, "conversations", "user_id", "TEXT");
   ensureColumn(database, "conversations", "fixed_prompt_enabled", "INTEGER NOT NULL DEFAULT 0");
@@ -482,6 +493,9 @@ function initializeSchema(database: DatabaseSync): void {
 
     CREATE INDEX IF NOT EXISTS idx_generation_tasks_conversation
       ON generation_tasks (conversation_id, created_at);
+
+    CREATE INDEX IF NOT EXISTS idx_templates_owner
+      ON templates (owner_user_id, created_at);
   `);
   seedDefaultGroups(database);
 }
@@ -946,6 +960,14 @@ export function getImageConcurrencySetting(): number {
   return getRuntimeImageSettings().imageConcurrency;
 }
 
+export function getImageRetentionDaysSetting(): number {
+  const value = Number(getAppSetting("image_retention_days") ?? 0);
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.min(Math.max(Math.floor(value), 0), 3650);
+}
+
 export function getImageTimeoutStreak(): number {
   const value = Number(getAppSetting("image_timeout_streak") ?? 0);
   return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
@@ -1018,6 +1040,7 @@ export function getPublicAdminSettings(): PublicAdminSettings {
     openaiOAuthProxyDisplay: redactProxyUrl(settings.openaiOAuthProxyUrl),
     imageModel: settings.imageModel,
     imageConcurrency: settings.imageConcurrency,
+    imageRetentionDays: getImageRetentionDaysSetting(),
     siteTitle: site.siteTitle,
     siteSubtitle: site.siteSubtitle,
     registrationEnabled: registration.registrationEnabled,
@@ -1030,15 +1053,16 @@ function seedTemplates(database: DatabaseSync): void {
   const createdAt = nowIso();
   const statement = database.prepare(`
     INSERT OR IGNORE INTO templates (
-      id, name, category, description, default_prompt, default_negative_prompt,
+      id, owner_user_id, name, category, description, default_prompt, default_negative_prompt,
       default_size, default_reference_strength, default_style_strength,
       source_image_id, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   for (const template of builtInTemplates) {
     statement.run(
       template.id,
+      null,
       template.name,
       template.category,
       template.description,
@@ -1190,6 +1214,60 @@ export function listConversationTasks(conversationId: string): GenerationTaskRow
       .prepare("SELECT * FROM generation_tasks WHERE conversation_id = ? ORDER BY created_at ASC LIMIT 100")
       .all(conversationId),
   );
+}
+
+export function deleteConversationWithGeneratedImages(conversationId: string): {
+  conversation: ConversationRow;
+  images: GeneratedImageRow[];
+} {
+  const conversation = getConversation(conversationId);
+  if (!conversation) {
+    throw new Error("会话不存在");
+  }
+
+  const images = castRows<GeneratedImageRow>(
+    getDb()
+      .prepare(
+        `
+        SELECT gi.*
+        FROM generated_images gi
+        INNER JOIN generation_tasks gt ON gt.id = gi.task_id
+        WHERE gt.conversation_id = ?
+        ORDER BY gi.created_at ASC
+        LIMIT 1000
+      `,
+      )
+      .all(conversationId),
+  );
+  const imageIds = images.map((image) => image.id);
+  const database = getDb();
+
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    if (imageIds.length > 0) {
+      const placeholders = imageIds.map(() => "?").join(", ");
+      database
+        .prepare(`UPDATE templates SET source_image_id = NULL, updated_at = ? WHERE source_image_id IN (${placeholders})`)
+        .run(nowIso(), ...imageIds);
+    }
+    database.prepare("DELETE FROM conversation_messages WHERE conversation_id = ?").run(conversationId);
+    database
+      .prepare(
+        `
+        DELETE FROM generated_images
+        WHERE task_id IN (SELECT id FROM generation_tasks WHERE conversation_id = ?)
+      `,
+      )
+      .run(conversationId);
+    database.prepare("DELETE FROM generation_tasks WHERE conversation_id = ?").run(conversationId);
+    database.prepare("DELETE FROM conversations WHERE id = ?").run(conversationId);
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+
+  return { conversation, images };
 }
 
 export function getLatestConversationTask(conversationId: string): GenerationTaskRow | null {
@@ -1687,21 +1765,103 @@ export function listImages(input: ListImagesInput): Array<GeneratedImageRow & { 
   );
 }
 
-export function listTemplates(category?: TemplateCategory): TemplateRow[] {
-  if (category) {
-    return castRows<TemplateRow>(
-      getDb()
-        .prepare("SELECT * FROM templates WHERE category = ? ORDER BY created_at ASC LIMIT 200")
-        .all(category),
-    );
+function uniqueIds(ids: string[]): string[] {
+  return Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+}
+
+export function getGeneratedImagesByIds(ids: string[]): GeneratedImageRow[] {
+  const safeIds = uniqueIds(ids);
+  if (safeIds.length === 0) {
+    return [];
   }
+  const placeholders = safeIds.map(() => "?").join(", ");
+  return castRows<GeneratedImageRow>(
+    getDb()
+      .prepare(`SELECT * FROM generated_images WHERE id IN (${placeholders}) LIMIT ${safeIds.length}`)
+      .all(...safeIds),
+  );
+}
+
+export function listExpiredGeneratedImages(cutoffIso: string, limit = 200): GeneratedImageRow[] {
+  const safeLimit = Math.min(Math.max(Math.floor(limit), 1), 1000);
+  return castRows<GeneratedImageRow>(
+    getDb()
+      .prepare("SELECT * FROM generated_images WHERE created_at < ? ORDER BY created_at ASC LIMIT ?")
+      .all(cutoffIso, safeLimit),
+  );
+}
+
+export function deleteGeneratedImagesByIds(ids: string[]): GeneratedImageRow[] {
+  const existing = getGeneratedImagesByIds(ids);
+  if (existing.length === 0) {
+    return [];
+  }
+
+  const imageIds = existing.map((image) => image.id);
+  const placeholders = imageIds.map(() => "?").join(", ");
+  const database = getDb();
+  const timestamp = nowIso();
+
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    database
+      .prepare(`UPDATE conversation_messages SET image_id = NULL WHERE image_id IN (${placeholders})`)
+      .run(...imageIds);
+    database
+      .prepare(`UPDATE templates SET source_image_id = NULL, updated_at = ? WHERE source_image_id IN (${placeholders})`)
+      .run(timestamp, ...imageIds);
+    database
+      .prepare(`DELETE FROM generated_images WHERE id IN (${placeholders})`)
+      .run(...imageIds);
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+
+  return existing;
+}
+
+export function listTemplates(input: ListTemplatesInput | TemplateCategory = {}): TemplateRow[] {
+  const normalized: ListTemplatesInput = typeof input === "string" ? { category: input } : input;
+  const where: string[] = [];
+  const params: Array<string | number> = [];
+  const scope = normalized.scope ?? "all";
+
+  if (normalized.category) {
+    where.push("category = ?");
+    params.push(normalized.category);
+  }
+
+  if (scope === "platform") {
+    where.push("owner_user_id IS NULL");
+  } else if (scope === "user") {
+    where.push("owner_user_id = ?");
+    params.push(normalized.userId ?? "");
+  } else if (normalized.userId) {
+    where.push("(owner_user_id IS NULL OR owner_user_id = ?)");
+    params.push(normalized.userId);
+  } else {
+    where.push("owner_user_id IS NULL");
+  }
+
+  const whereSql = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
 
   return castRows<TemplateRow>(
     getDb()
       .prepare(
-        "SELECT * FROM templates ORDER BY CASE category WHEN 'use_case' THEN 1 WHEN 'platform' THEN 2 ELSE 3 END, created_at ASC LIMIT 200",
+        `
+        SELECT *
+        FROM templates
+        ${whereSql}
+        ORDER BY
+          CASE WHEN owner_user_id IS NULL THEN 0 ELSE 1 END,
+          CASE category WHEN 'use_case' THEN 1 WHEN 'platform' THEN 2 ELSE 3 END,
+          created_at ASC
+        LIMIT 300
+      `,
       )
-      .all(),
+      .all(...params),
   );
 }
 
@@ -1721,14 +1881,15 @@ export function createTemplate(input: CreateTemplateInput): TemplateRow {
     .prepare(
       `
       INSERT INTO templates (
-        id, name, category, description, default_prompt, default_negative_prompt,
+        id, owner_user_id, name, category, description, default_prompt, default_negative_prompt,
         default_size, default_reference_strength, default_style_strength,
         source_image_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     )
     .run(
       id,
+      input.ownerUserId ?? null,
       input.name,
       input.category,
       input.description,
@@ -1797,6 +1958,16 @@ export function updateTemplate(id: string, input: UpdateTemplateInput): Template
     throw new Error("模板更新失败");
   }
   return updated;
+}
+
+export function deleteTemplate(id: string): TemplateRow {
+  const existing = getTemplate(id);
+  if (!existing) {
+    throw new Error("模板不存在");
+  }
+
+  getDb().prepare("DELETE FROM templates WHERE id = ?").run(id);
+  return existing;
 }
 
 export function getAdminStats(): AdminStats {
@@ -2158,6 +2329,8 @@ export function toPublicImage(row: GeneratedImageRow & { template_name?: string 
 export function toPublicTemplate(row: TemplateRow): PublicTemplate {
   return {
     id: row.id,
+    ownerUserId: row.owner_user_id,
+    scope: row.owner_user_id ? "user" : "platform",
     name: row.name,
     category: row.category,
     description: row.description,

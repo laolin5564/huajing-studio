@@ -45,6 +45,9 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     if (input.imageConcurrency !== undefined) {
       setAppSetting("image_concurrency", String(input.imageConcurrency));
     }
+    if (input.imageRetentionDays !== undefined) {
+      setAppSetting("image_retention_days", String(input.imageRetentionDays));
+    }
     if (input.siteTitle) {
       setAppSetting("site_title", input.siteTitle);
     }

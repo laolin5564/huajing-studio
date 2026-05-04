@@ -1,21 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createTemplate, listTemplates, toPublicTemplate } from "@/lib/db";
-import { requireAdmin, requireUser } from "@/lib/auth";
-import { handleRouteError } from "@/lib/http";
-import { createTemplateSchema } from "@/lib/validation";
-import { templateCategories } from "@/lib/types";
+import { requireUser } from "@/lib/auth";
+import { handleRouteError, jsonError } from "@/lib/http";
+import { createTemplateSchema, listTemplatesQuerySchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    requireUser(request);
-    const category = request.nextUrl.searchParams.get("category");
-    const safeCategory = templateCategories.includes(category as (typeof templateCategories)[number])
-      ? (category as (typeof templateCategories)[number])
-      : undefined;
-    const templates = listTemplates(safeCategory).map(toPublicTemplate);
+    const user = requireUser(request);
+    const query = listTemplatesQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams));
+    const templates = listTemplates({
+      userId: user.id,
+      category: query.category,
+      scope: query.scope,
+    }).map(toPublicTemplate);
     return NextResponse.json({ templates });
   } catch (error) {
     return handleRouteError(error);
@@ -24,9 +24,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    requireAdmin(request);
+    const user = requireUser(request);
     const input = createTemplateSchema.parse(await request.json());
-    const template = createTemplate(input);
+    if (input.scope === "platform" && user.role !== "admin") {
+      return jsonError("只有管理员可以创建平台模板", 403);
+    }
+    const template = createTemplate({
+      ...input,
+      ownerUserId: input.scope === "platform" ? null : user.id,
+    });
     return NextResponse.json({ template: toPublicTemplate(template) }, { status: 201 });
   } catch (error) {
     return handleRouteError(error);

@@ -6,7 +6,7 @@ import {
   getSourceImage,
   getUserQuota,
 } from "./db";
-import type { ConversationRow, CurrentUser, GenerationTaskRow, GeneratedImageRow, SourceImageRow } from "./types";
+import type { ConversationRow, CurrentUser, GenerationTaskRow, GeneratedImageRow, SourceImageRow, TemplateRow } from "./types";
 
 function isAdmin(user: CurrentUser): boolean {
   return user.role === "admin";
@@ -61,6 +61,28 @@ export function assertImageReferenceAccess(user: CurrentUser, imageId: string): 
   }
 
   throw new AuthError("参考图不存在或已无法访问", 400);
+}
+
+export function assertTemplateReadAccess(user: CurrentUser, template: TemplateRow): void {
+  if (template.owner_user_id === null || isAdmin(user) || template.owner_user_id === user.id) {
+    return;
+  }
+  throw new AuthError("无权访问该模板", 403);
+}
+
+export function assertTemplateManageAccess(user: CurrentUser, template: TemplateRow): void {
+  if (template.owner_user_id === null) {
+    if (isAdmin(user)) {
+      return;
+    }
+    throw new AuthError("只有管理员可以管理平台模板", 403);
+  }
+
+  if (isAdmin(user) || template.owner_user_id === user.id) {
+    return;
+  }
+
+  throw new AuthError("无权管理该模板", 403);
 }
 
 export function assertQuotaAvailable(user: CurrentUser, quantity: number): void {

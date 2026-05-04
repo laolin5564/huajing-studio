@@ -6,6 +6,7 @@ import {
   imageProviders,
   taskStatuses,
   templateCategories,
+  templateScopes,
   userRoles,
 } from "./types";
 
@@ -75,6 +76,7 @@ export const listImagesQuerySchema = z.object({
 });
 
 export const createTemplateSchema = z.object({
+  scope: z.enum(templateScopes).default("user"),
   name: z.string().trim().min(1, "模板名称不能为空").max(80),
   category: z.enum(templateCategories).default("company"),
   description: nullableString,
@@ -91,6 +93,29 @@ export const updateTemplateSchema = createTemplateSchema.partial().extend({
   defaultPrompt: z.string().trim().min(1).max(8000).optional(),
 });
 
+export const listTemplatesQuerySchema = z.object({
+  category: z
+    .string()
+    .optional()
+    .transform((value) =>
+      templateCategories.includes(value as (typeof templateCategories)[number])
+        ? (value as (typeof templateCategories)[number])
+        : null,
+    ),
+  scope: z
+    .string()
+    .optional()
+    .transform((value) =>
+      templateScopes.includes(value as (typeof templateScopes)[number])
+        ? (value as (typeof templateScopes)[number])
+        : "all",
+    ),
+});
+
+export const deleteImagesSchema = z.object({
+  imageIds: z.array(z.string().trim().min(1)).min(1).max(60),
+});
+
 export const createTemplateFromImageSchema = z.object({
   imageId: z.string().trim().min(1),
   name: z.string().trim().min(1, "模板名称不能为空").max(80),
@@ -105,6 +130,7 @@ export const updateAdminSettingsSchema = z.object({
   openaiOAuthProxyUrl: z.union([z.string().trim().max(500), z.null()]).optional(),
   imageModel: z.string().trim().min(1).max(100).optional(),
   imageConcurrency: z.coerce.number().int().min(imageConcurrencyLimits.min).max(imageConcurrencyLimits.max).optional(),
+  imageRetentionDays: z.coerce.number().int().min(0).max(3650).optional(),
   siteTitle: z.string().trim().min(1).max(80).optional(),
   siteSubtitle: z.string().trim().min(1).max(120).optional(),
   registrationEnabled: z.boolean().optional(),

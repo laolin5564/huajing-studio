@@ -25,6 +25,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const template = createTemplate({
+      ownerUserId: user.id,
       name: input.name,
       category: input.category,
       description: input.description ?? `来自会话：${conversation.title}`,

@@ -3,13 +3,14 @@ import {
   createGenerationTask,
   getConversation,
   getImageFilePathById,
+  getTemplate,
   getTaskImages,
   listGenerationTasks,
   toPublicTask,
 } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { handleRouteError, jsonError } from "@/lib/http";
-import { assertConversationAccess, assertImageReferenceAccess, assertQuotaAvailable } from "@/lib/permissions";
+import { assertConversationAccess, assertImageReferenceAccess, assertQuotaAvailable, assertTemplateReadAccess } from "@/lib/permissions";
 import { createGenerationTaskSchema, listTasksQuerySchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -44,6 +45,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         return jsonError("会话不存在", 404);
       }
       assertConversationAccess(user, conversation);
+    }
+
+    if (input.templateId) {
+      const template = getTemplate(input.templateId);
+      if (!template) {
+        return jsonError("模板不存在", 404);
+      }
+      assertTemplateReadAccess(user, template);
     }
 
     const allSourceImageIds: string[] = [];

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   getConversation,
+  deleteConversationWithGeneratedImages,
   listConversationMessages,
   listConversationTasks,
   toPublicConversation,
@@ -9,6 +10,7 @@ import {
 import { requireUser } from "@/lib/auth";
 import { handleRouteError, jsonError } from "@/lib/http";
 import { assertConversationAccess } from "@/lib/permissions";
+import { deleteStorageFile } from "@/lib/storage";
 import { updateConversationFixedPromptSchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -67,6 +69,27 @@ export async function PATCH(
         tasks: listConversationTasks(id),
       }),
     });
+  } catch (error) {
+    return handleRouteError(error);
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> },
+): Promise<NextResponse> {
+  try {
+    const user = requireUser(request);
+    const { id } = await context.params;
+    const conversation = getConversation(id);
+    if (!conversation) {
+      return jsonError("会话不存在", 404);
+    }
+    assertConversationAccess(user, conversation);
+
+    const deleted = deleteConversationWithGeneratedImages(id);
+    await Promise.all(deleted.images.map((image) => deleteStorageFile(image.file_path)));
+    return NextResponse.json({ conversation: toPublicConversation(deleted.conversation), deletedImages: deleted.images.length });
   } catch (error) {
     return handleRouteError(error);
   }

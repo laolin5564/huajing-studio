@@ -10,6 +10,9 @@ export type TaskProgressStage = (typeof taskProgressStages)[number];
 export const templateCategories = ["use_case", "platform", "company"] as const;
 export type TemplateCategory = (typeof templateCategories)[number];
 
+export const templateScopes = ["platform", "user"] as const;
+export type TemplateScope = (typeof templateScopes)[number];
+
 export const userRoles = ["admin", "member"] as const;
 export type UserRole = (typeof userRoles)[number];
 
@@ -75,6 +78,7 @@ export interface SourceImageRow {
 
 export interface TemplateRow {
   id: string;
+  owner_user_id: string | null;
   name: string;
   category: TemplateCategory;
   description: string | null;
@@ -293,6 +297,8 @@ export interface CurrentUser {
 
 export interface PublicTemplate {
   id: string;
+  ownerUserId: string | null;
+  scope: TemplateScope;
   name: string;
   category: TemplateCategory;
   description: string | null;
@@ -365,6 +371,7 @@ export interface PublicAdminSettings {
   openaiOAuthProxyDisplay: string | null;
   imageModel: string;
   imageConcurrency: number;
+  imageRetentionDays: number;
   siteTitle: string;
   siteSubtitle: string;
   registrationEnabled: boolean;

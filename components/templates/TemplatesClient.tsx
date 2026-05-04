@@ -1,10 +1,10 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Edit3, LayoutTemplate, Plus, Save } from "lucide-react";
+import { Edit3, LayoutTemplate, Plus, Save, ShieldCheck, Trash2, UserRound } from "lucide-react";
 import clsx from "clsx";
 import { imageSizeLabels, sizeOptions } from "@/lib/image-options";
-import type { PublicTemplate, TemplateCategory } from "@/lib/types";
+import type { CurrentUser, PublicTemplate, TemplateCategory, TemplateScope } from "@/lib/types";
 import { apiJson, categoryLabels, formatDateTime } from "@/components/client-api";
 
 interface TemplateListResponse {
@@ -13,6 +13,10 @@ interface TemplateListResponse {
 
 interface TemplateResponse {
   template: PublicTemplate;
+}
+
+interface MeResponse {
+  user: CurrentUser | null;
 }
 
 const categoryOptions: TemplateCategory[] = ["use_case", "platform", "company"];
@@ -31,6 +35,8 @@ const emptyForm = {
 
 export function TemplatesClient() {
   const [templates, setTemplates] = useState<PublicTemplate[]>([]);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [activeScope, setActiveScope] = useState<TemplateScope>("platform");
   const [activeCategory, setActiveCategory] = useState<TemplateCategory | "all">("all");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -39,13 +45,14 @@ export function TemplatesClient() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const visibleTemplates = useMemo(
-    () =>
-      activeCategory === "all"
-        ? templates
-        : templates.filter((template) => template.category === activeCategory),
-    [activeCategory, templates],
-  );
+  const visibleTemplates = useMemo(() => {
+    const scoped = templates.filter((template) => template.scope === activeScope);
+    return activeCategory === "all"
+      ? scoped
+      : scoped.filter((template) => template.category === activeCategory);
+  }, [activeCategory, activeScope, templates]);
+
+  const canCreateInActiveScope = activeScope === "user" || currentUser?.role === "admin";
 
   async function loadTemplates(): Promise<void> {
     setLoading(true);
@@ -61,10 +68,20 @@ export function TemplatesClient() {
   }
 
   useEffect(() => {
-    loadTemplates().catch((caught: Error) => setError(caught.message));
+    Promise.all([
+      loadTemplates(),
+      apiJson<MeResponse>("/api/auth/me").then((payload) => {
+        setCurrentUser(payload.user);
+        if (payload.user?.role !== "admin") {
+          setActiveScope("user");
+        }
+      }),
+    ])
+      .catch((caught: Error) => setError(caught.message));
   }, []);
 
-  function startCreate(): void {
+  function startCreate(scope: TemplateScope = activeScope): void {
+    setActiveScope(scope);
     setEditingId(null);
     setForm(emptyForm);
     setMessage("");
@@ -73,6 +90,7 @@ export function TemplatesClient() {
 
   function startEdit(template: PublicTemplate): void {
     setEditingId(template.id);
+    setActiveScope(template.scope);
     setForm({
       name: template.name,
       category: template.category,
@@ -96,6 +114,7 @@ export function TemplatesClient() {
     try {
       const body = JSON.stringify({
         ...form,
+        scope: editingId ? undefined : activeScope,
         description: form.description || null,
         defaultNegativePrompt: form.defaultNegativePrompt || null,
       });
@@ -105,10 +124,30 @@ export function TemplatesClient() {
       setMessage(editingId ? "模板已更新。" : "模板已创建。");
       await loadTemplates();
       setEditingId(payload.template.id);
+      setActiveScope(payload.template.scope);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "模板保存失败");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function deleteCurrentTemplate(template: PublicTemplate): Promise<void> {
+    const ok = window.confirm(`确定删除模板「${template.name}」吗？`);
+    if (!ok) {
+      return;
+    }
+    setError("");
+    setMessage("");
+    try {
+      await apiJson(`/api/templates/${template.id}`, { method: "DELETE" });
+      setTemplates((current) => current.filter((item) => item.id !== template.id));
+      if (editingId === template.id) {
+        startCreate(template.scope);
+      }
+      setMessage("模板已删除。");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "模板删除失败");
     }
   }
 
@@ -117,11 +156,11 @@ export function TemplatesClient() {
       <section className="page-heading">
         <div>
           <h1>模板管理</h1>
-          <p>用途模板、平台模板和公司模板统一维护，工作台选择模板后会自动带出默认参数。</p>
+          <p>平台模板由管理员维护，用户模板由账号自己保存和管理，工作台会同时读取可用模板。</p>
         </div>
-        <button className="button" type="button" onClick={startCreate}>
+        <button className="button" type="button" onClick={() => startCreate(activeScope)} disabled={!canCreateInActiveScope}>
           <Plus size={16} aria-hidden="true" />
-          新建模板
+          {activeScope === "platform" ? "新建平台模板" : "新建用户模板"}
         </button>
       </section>
 
@@ -130,10 +169,34 @@ export function TemplatesClient() {
           <div className="panel-header">
             <div>
               <h2>模板库</h2>
-              <p>内置模板和公司模板</p>
+              <p>{activeScope === "platform" ? "管理员维护的公共模板" : "当前账号保存的个人模板"}</p>
             </div>
           </div>
           <div className="panel-body">
+            <div className="template-toolbar">
+              <button
+                className={clsx("button", activeScope === "platform" && "subtle")}
+                type="button"
+                onClick={() => {
+                  setActiveScope("platform");
+                  setEditingId(null);
+                }}
+              >
+                <ShieldCheck size={15} aria-hidden="true" />
+                平台模板
+              </button>
+              <button
+                className={clsx("button", activeScope === "user" && "subtle")}
+                type="button"
+                onClick={() => {
+                  setActiveScope("user");
+                  setEditingId(null);
+                }}
+              >
+                <UserRound size={15} aria-hidden="true" />
+                用户模板
+              </button>
+            </div>
             <div className="template-toolbar">
               <button
                 className={clsx("button", activeCategory === "all" && "subtle")}
@@ -169,9 +232,26 @@ export function TemplatesClient() {
                       <LayoutTemplate size={13} aria-hidden="true" />
                       {categoryLabels[template.category]}
                     </span>
-                    <button className="icon-button" type="button" onClick={() => startEdit(template)} title="编辑模板">
-                      <Edit3 size={15} aria-hidden="true" />
-                    </button>
+                    <div className="template-item-actions">
+                      <button
+                        className="icon-button"
+                        type="button"
+                        onClick={() => startEdit(template)}
+                        title="编辑模板"
+                        disabled={template.scope === "platform" && currentUser?.role !== "admin"}
+                      >
+                        <Edit3 size={15} aria-hidden="true" />
+                      </button>
+                      <button
+                        className="icon-button danger"
+                        type="button"
+                        onClick={() => deleteCurrentTemplate(template)}
+                        title="删除模板"
+                        disabled={template.scope === "platform" && currentUser?.role !== "admin"}
+                      >
+                        <Trash2 size={15} aria-hidden="true" />
+                      </button>
+                    </div>
                   </div>
                   <h3>{template.name}</h3>
                   <p>{template.description || "暂无说明"}</p>
@@ -182,6 +262,7 @@ export function TemplatesClient() {
                     </span>
                     <span className="badge">参考 {template.defaultReferenceStrength.toFixed(2)}</span>
                     <span className="badge">风格 {template.defaultStyleStrength.toFixed(2)}</span>
+                    <span className="badge">{template.scope === "platform" ? "平台" : "用户"}</span>
                   </div>
                   <small>更新于 {formatDateTime(template.updatedAt)}</small>
                 </article>
@@ -189,7 +270,7 @@ export function TemplatesClient() {
                 <div className="empty-state">
                   <div>
                     <strong>{activeCategory === "all" ? "暂无模板" : `暂无${categoryLabels[activeCategory]}模板`}</strong>
-                    <span>{activeCategory === "all" ? "点击右上角新建模板。" : "可以切换分类或新建一个模板。"}</span>
+                    <span>{canCreateInActiveScope ? "可以新建一个模板。" : "平台模板只能由管理员维护。"}</span>
                   </div>
                 </div>
               )}
@@ -201,10 +282,31 @@ export function TemplatesClient() {
           <div className="panel-header">
             <div>
               <h2>{editingId ? "编辑模板" : "新建模板"}</h2>
-              <p>{editingId ? "修改后会影响后续使用" : "默认创建为公司模板"}</p>
+              <p>{activeScope === "platform" ? "平台模板对所有用户可见" : "用户模板只归当前账号使用"}</p>
             </div>
           </div>
           <form className="panel-body form-stack" onSubmit={handleSubmit}>
+            <div className="field">
+              <label>模板板块</label>
+              <div className="segmented two">
+                <button
+                  className={clsx(activeScope === "platform" && "active")}
+                  type="button"
+                  onClick={() => startCreate("platform")}
+                  disabled={editingId !== null || currentUser?.role !== "admin"}
+                >
+                  平台模板
+                </button>
+                <button
+                  className={clsx(activeScope === "user" && "active")}
+                  type="button"
+                  onClick={() => startCreate("user")}
+                  disabled={editingId !== null}
+                >
+                  用户模板
+                </button>
+              </div>
+            </div>
             <div className="field">
               <label htmlFor="templateName">名称</label>
               <input
@@ -303,7 +405,7 @@ export function TemplatesClient() {
                 }
               />
             </div>
-            <button className="button primary" type="submit" disabled={saving}>
+            <button className="button primary" type="submit" disabled={saving || (!canCreateInActiveScope && !editingId)}>
               <Save size={16} aria-hidden="true" />
               {saving ? "保存中" : "保存模板"}
             </button>

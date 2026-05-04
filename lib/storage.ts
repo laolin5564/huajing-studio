@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { appConfig } from "./config";
 import { ratioForOption } from "./image-options";
@@ -117,6 +117,12 @@ export async function readStorageFile(relativePath: string): Promise<{
   return { bytes: new Uint8Array(bytes), mimeType: mimeFromFileName(relativePath) };
 }
 
+export async function deleteStorageFile(relativePath: string): Promise<void> {
+  const absolutePath = resolveStoragePath(relativePath);
+  await rm(absolutePath, { force: true });
+  await removeEmptyParentDirectories(path.dirname(absolutePath));
+}
+
 export function resolveStoragePath(relativePath: string): string {
   if (path.isAbsolute(relativePath) || relativePath.includes("..")) {
     throw new Error("图片路径不合法");
@@ -134,4 +140,17 @@ async function writeStorageFile(relativePath: string, bytes: Uint8Array): Promis
   const absolutePath = resolveStoragePath(relativePath);
   await mkdir(path.dirname(absolutePath), { recursive: true });
   await writeFile(absolutePath, bytes);
+}
+
+async function removeEmptyParentDirectories(directory: string): Promise<void> {
+  const root = path.resolve(appConfig.imageStorageDir);
+  let current = path.resolve(directory);
+  while (current !== root && current.startsWith(`${root}${path.sep}`)) {
+    try {
+      await rmdir(current);
+    } catch {
+      break;
+    }
+    current = path.dirname(current);
+  }
 }

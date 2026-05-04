@@ -257,6 +257,18 @@ button.nav-link {
   background: rgba(238, 242, 239, 0.84);
 }
 
+.button.danger,
+.icon-button.danger {
+  border-color: rgba(190, 45, 33, 0.22);
+  color: var(--danger);
+}
+
+.button.danger:hover,
+.icon-button.danger:hover {
+  border-color: rgba(190, 45, 33, 0.44);
+  background: rgba(255, 240, 238, 0.92);
+}
+
 .button:disabled,
 .icon-button:disabled {
   cursor: not-allowed;
@@ -333,6 +345,12 @@ button.nav-link {
   letter-spacing: 0.01em;
 }
 
+.field-hint {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
 .field-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -353,6 +371,10 @@ button.nav-link {
   border: 1px solid rgba(205, 215, 208, 0.95);
   border-radius: 0.8rem;
   background: rgba(238, 242, 239, 0.84);
+}
+
+.segmented.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .segmented button {
@@ -480,6 +502,7 @@ button.nav-link {
 }
 
 .image-card {
+  position: relative;
   overflow: hidden;
   border: 1px solid rgba(210, 220, 213, 0.96);
   border-radius: 0.8rem;
@@ -489,6 +512,59 @@ button.nav-link {
     border-color 160ms ease,
     box-shadow 160ms ease,
     transform 160ms ease;
+}
+
+.image-card.selectable.selected {
+  border-color: rgba(8, 124, 115, 0.58);
+  box-shadow: 0 0 0 3px rgba(8, 124, 115, 0.12), var(--shadow-soft);
+}
+
+.image-select-control {
+  position: absolute;
+  z-index: 2;
+  top: 0.6rem;
+  left: 0.6rem;
+  display: inline-flex;
+  align-items: center;
+  width: 2rem;
+  height: 2rem;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.64);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--ink);
+  font-size: 0.72rem;
+  font-weight: 760;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-0.25rem);
+  backdrop-filter: blur(10px);
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease,
+    background 160ms ease,
+    border-color 160ms ease;
+}
+
+.history-selecting .image-select-control,
+.image-card.selectable.selected .image-select-control,
+.image-card.selectable:hover .image-select-control,
+.image-select-control:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.image-card.selectable.selected .image-select-control {
+  border-color: rgba(8, 124, 115, 0.4);
+  background: rgba(239, 248, 245, 0.96);
+}
+
+.image-select-control input {
+  width: 0.95rem;
+  height: 0.95rem;
+  accent-color: var(--accent);
 }
 
 .image-card:hover {
@@ -1509,6 +1585,21 @@ button.nav-link {
   white-space: nowrap;
 }
 
+.conversation-item-actions,
+.template-item-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.conversation-item-actions .icon-button,
+.template-item-actions .icon-button {
+  width: 2rem;
+  min-height: 2rem;
+  border-radius: 0.6rem;
+}
+
 .queue-item-top {
   display: flex;
   align-items: center;
@@ -1536,11 +1627,35 @@ button.nav-link {
   overflow-wrap: anywhere;
 }
 
-.history-toolbar,
-.template-toolbar {
+.history-toolbar {
   display: grid;
   grid-template-columns: minmax(12rem, 1fr) 12rem 12rem auto;
+  align-items: end;
   gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.history-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
+.history-action-button {
+  min-height: 2.6rem;
+  border-radius: 0.72rem;
+  white-space: nowrap;
+}
+
+.history-action-button.primary {
+  box-shadow: 0 8px 18px rgba(16, 23, 19, 0.12);
+}
+
+.template-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
   margin-bottom: 1rem;
 }
 
@@ -1682,6 +1797,10 @@ button.nav-link {
   .history-toolbar,
   .template-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .history-actions {
+    justify-content: flex-start;
   }
 
   .field-row,

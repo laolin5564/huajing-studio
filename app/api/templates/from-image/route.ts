@@ -20,6 +20,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     assertGeneratedImageAccess(user, image);
 
     const template = createTemplate({
+      ownerUserId: user.id,
       name: input.name,
       category: input.category,
       description: input.description,

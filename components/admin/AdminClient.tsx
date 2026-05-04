@@ -88,6 +88,7 @@ export function AdminClient() {
   const [baseUrl, setBaseUrl] = useState("");
   const [imageModel, setImageModel] = useState("");
   const [imageConcurrency, setImageConcurrency] = useState(2);
+  const [imageRetentionDays, setImageRetentionDays] = useState(0);
   const [siteTitle, setSiteTitle] = useState("");
   const [siteSubtitle, setSiteSubtitle] = useState("");
   const [registrationEnabled, setRegistrationEnabled] = useState(true);
@@ -145,6 +146,7 @@ export function AdminClient() {
     setBaseUrl(payload.settings.sub2apiBaseUrl);
     setImageModel(payload.settings.imageModel);
     setImageConcurrency(payload.settings.imageConcurrency);
+    setImageRetentionDays(payload.settings.imageRetentionDays);
     setSiteTitle(payload.settings.siteTitle);
     setSiteSubtitle(payload.settings.siteSubtitle);
     setRegistrationEnabled(payload.settings.registrationEnabled);
@@ -351,6 +353,7 @@ export function AdminClient() {
         sub2apiBaseUrl?: string;
         imageModel?: string;
         imageConcurrency?: number;
+        imageRetentionDays?: number;
         siteTitle?: string;
         siteSubtitle?: string;
         registrationEnabled?: boolean;
@@ -359,6 +362,7 @@ export function AdminClient() {
       } = {
         imageProvider,
         imageConcurrency,
+        imageRetentionDays,
         siteTitle,
         siteSubtitle,
         registrationEnabled,
@@ -382,6 +386,7 @@ export function AdminClient() {
       setSettings(payload.settings);
       setImageProvider(payload.settings.imageProvider);
       setImageConcurrency(payload.settings.imageConcurrency);
+      setImageRetentionDays(payload.settings.imageRetentionDays);
       setSiteTitle(payload.settings.siteTitle);
       setSiteSubtitle(payload.settings.siteSubtitle);
       setRegistrationEnabled(payload.settings.registrationEnabled);
@@ -1100,6 +1105,19 @@ export function AdminClient() {
                   value={imageConcurrency}
                   onChange={(event) => setImageConcurrency(Number(event.target.value))}
                 />
+              </div>
+              <div className="field">
+                <label htmlFor="imageRetentionDays">图片自动删除天数</label>
+                <input
+                  id="imageRetentionDays"
+                  className="input"
+                  type="number"
+                  min={0}
+                  max={3650}
+                  value={imageRetentionDays}
+                  onChange={(event) => setImageRetentionDays(Number(event.target.value))}
+                />
+                <small className="field-hint">0 表示不自动删除；开启后 Worker 会定期清理超过保留天数的历史生成图。</small>
               </div>
               <button className="button primary" type="button" onClick={saveSettings} disabled={settingsSaving}>
                 <Save size={16} aria-hidden="true" />

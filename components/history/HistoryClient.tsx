@@ -3,7 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Copy, Download, Pencil, RefreshCw, Save, Search } from "lucide-react";
+import { Check, Copy, Download, Pencil, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
 import clsx from "clsx";
 import { sizeFromDimensions } from "@/lib/image-options";
 import type { GenerationMode, PublicImage, PublicTemplate } from "@/lib/types";
@@ -25,6 +25,8 @@ export function HistoryClient() {
   const [templateId, setTemplateId] = useState("");
   const [images, setImages] = useState<PublicImage[]>([]);
   const [templates, setTemplates] = useState<PublicTemplate[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectionMode, setSelectionMode] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -51,6 +53,7 @@ export function HistoryClient() {
 
       const payload = await apiJson<ImageListResponse>(`/api/images?${params.toString()}`);
       setImages(payload.images);
+      setSelectedIds((current) => current.filter((id) => payload.images.some((image) => image.id === id)));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "历史记录加载失败");
     } finally {
@@ -78,6 +81,51 @@ export function HistoryClient() {
   }
 
   const hasFilters = Boolean(keyword.trim() || mode || templateId);
+  const selectedCount = selectedIds.length;
+
+  function toggleImageSelection(imageId: string): void {
+    setSelectionMode(true);
+    setSelectedIds((current) =>
+      current.includes(imageId) ? current.filter((id) => id !== imageId) : [...current, imageId],
+    );
+  }
+
+  function cancelSelection(): void {
+    setSelectionMode(false);
+    setSelectedIds([]);
+  }
+
+  async function deleteImages(imageIds: string[]): Promise<void> {
+    const uniqueIds = Array.from(new Set(imageIds));
+    if (uniqueIds.length === 0) {
+      return;
+    }
+    const ok = window.confirm(uniqueIds.length === 1 ? "确定删除这张历史图片吗？" : `确定删除选中的 ${uniqueIds.length} 张历史图片吗？`);
+    if (!ok) {
+      return;
+    }
+    setError("");
+    setMessage("");
+
+    try {
+      if (uniqueIds.length === 1) {
+        await apiJson(`/api/images/${uniqueIds[0]}`, { method: "DELETE" });
+      } else {
+        await apiJson("/api/images", {
+          method: "DELETE",
+          body: JSON.stringify({ imageIds: uniqueIds }),
+        });
+      }
+      setImages((current) => current.filter((image) => !uniqueIds.includes(image.id)));
+      setSelectedIds((current) => current.filter((id) => !uniqueIds.includes(id)));
+      if (uniqueIds.length > 1 || uniqueIds.some((id) => selectedIds.includes(id))) {
+        setSelectionMode(false);
+      }
+      setMessage(uniqueIds.length === 1 ? "历史图片已删除。" : `已删除 ${uniqueIds.length} 张历史图片。`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "删除历史图片失败");
+    }
+  }
 
   async function regenerate(image: PublicImage): Promise<void> {
     try {
@@ -114,12 +162,12 @@ export function HistoryClient() {
           imageId: image.id,
           name,
           category: "company",
-          description: "从历史记录保存的模板",
+          description: "从历史记录保存的用户模板",
         }),
       });
       const payload = await apiJson<TemplateListResponse>("/api/templates");
       setTemplates(payload.templates);
-      setMessage("模板已保存。");
+      setMessage("用户模板已保存。");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "保存模板失败");
     }
@@ -170,10 +218,26 @@ export function HistoryClient() {
             ))}
           </select>
         </div>
-        <button className="button primary" type="button" onClick={loadImages}>
-          <Search size={16} aria-hidden="true" />
-          筛选
-        </button>
+        <div className="history-actions">
+          <button className="button primary history-action-button" type="button" onClick={loadImages}>
+            <Search size={16} aria-hidden="true" />
+            筛选
+          </button>
+          <button
+            className="button history-action-button"
+            type="button"
+            onClick={() => (selectionMode ? cancelSelection() : setSelectionMode(true))}
+          >
+            {selectionMode ? <X size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}
+            {selectionMode ? "取消" : "选择"}
+          </button>
+          {selectionMode ? (
+            <button className="button danger history-action-button" type="button" onClick={() => deleteImages(selectedIds)} disabled={selectedCount === 0}>
+              <Trash2 size={16} aria-hidden="true" />
+              删除{selectedCount > 0 ? ` ${selectedCount}` : ""}
+            </button>
+          ) : null}
+        </div>
       </section>
 
       <div className={clsx("toast-line", error && "error")} role="status" aria-live="polite">{error || message}</div>
@@ -186,9 +250,17 @@ export function HistoryClient() {
           </div>
         </div>
       ) : images.length > 0 ? (
-        <section className="image-grid">
+        <section className={clsx("image-grid", selectionMode && "history-selecting")}>
           {images.map((image) => (
-            <article className="image-card" key={image.id}>
+            <article className={clsx("image-card selectable", selectedIds.includes(image.id) && "selected")} key={image.id}>
+              <label className="image-select-control">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.includes(image.id)}
+                  onChange={() => toggleImageSelection(image.id)}
+                  aria-label="选择历史图片"
+                />
+              </label>
               <div className={clsx("image-frame", image.height > image.width && "tall", image.width > image.height && "wide")}>
                 <img src={image.url} alt={image.prompt} />
               </div>
@@ -217,6 +289,9 @@ export function HistoryClient() {
                   </Link>
                   <button className="icon-button" type="button" onClick={() => saveTemplate(image)} title="保存为模板">
                     <Save size={15} aria-hidden="true" />
+                  </button>
+                  <button className="icon-button danger" type="button" onClick={() => deleteImages([image.id])} title="删除图片">
+                    <Trash2 size={15} aria-hidden="true" />
                   </button>
                 </div>
               </div>

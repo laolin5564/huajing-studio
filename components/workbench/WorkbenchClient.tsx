@@ -20,6 +20,7 @@ import {
   Send,
   Sparkles,
   Square,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
@@ -735,12 +736,12 @@ export function WorkbenchClient() {
           imageId: image.id,
           name,
           category: "company",
-          description: "从历史图片保存的公司模板",
+          description: "从历史图片保存的用户模板",
         }),
       });
       const payload = await apiJson<TemplateListResponse>("/api/templates");
       setTemplates(payload.templates);
-      setMessage("已保存为公司模板。");
+      setMessage("已保存为用户模板。");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "保存模板失败");
     }
@@ -874,6 +875,35 @@ export function WorkbenchClient() {
     clearChatSourceImage();
     setError("");
     setMessage("");
+  }
+
+  async function deleteConversation(conversationId: string): Promise<void> {
+    const conversation = conversations.find((item) => item.id === conversationId);
+    const ok = window.confirm(`确定删除会话「${conversation?.title ?? "当前会话"}」吗？会话内的生成结果也会从历史记录中移除。`);
+    if (!ok) {
+      return;
+    }
+    setError("");
+    setMessage("");
+    try {
+      await apiJson(`/api/conversations/${conversationId}`, { method: "DELETE" });
+      const remaining = conversations.filter((item) => item.id !== conversationId);
+      setConversations(remaining);
+      if (activeConversationId === conversationId) {
+        const nextId = remaining[0]?.id ?? null;
+        setActiveConversationId(nextId);
+        setActiveConversation(null);
+        setSelectedImageId(null);
+        clearChatSourceImage();
+        if (nextId) {
+          await refreshActiveConversation(nextId);
+        }
+      }
+      setMessage("会话已删除。");
+      await refreshConversations();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "删除会话失败");
+    }
   }
 
   return (
@@ -1154,29 +1184,50 @@ export function WorkbenchClient() {
               conversations.map((conversation) => {
                 const task = conversation.latestTask;
                 return (
-                <button
+                <article
                   className={clsx("queue-item conversation-list-item", activeConversationId === conversation.id && "active")}
                   key={conversation.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => openConversation(conversation.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openConversation(conversation.id);
+                    }
+                  }}
                 >
                   <div className="queue-item-top">
                     <span className="badge">
                       <Layers size={13} aria-hidden="true" />
                       {task ? modeLabels[task.mode] : "会话"}
                     </span>
-                    {task ? (
-                      <span className={clsx("badge", task.status === "succeeded" && "success", task.status === "failed" && "danger", task.status === "processing" && "warning")}>
-                        <span className={clsx("status-dot", task.status)} />
-                        {taskDisplayLabel(task)}
-                      </span>
-                    ) : null}
+                    <div className="conversation-item-actions">
+                      {task ? (
+                        <span className={clsx("badge", task.status === "succeeded" && "success", task.status === "failed" && "danger", task.status === "processing" && "warning")}>
+                          <span className={clsx("status-dot", task.status)} />
+                          {taskDisplayLabel(task)}
+                        </span>
+                      ) : null}
+                      <button
+                        className="icon-button danger"
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          deleteConversation(conversation.id).catch((caught: Error) => setError(caught.message));
+                        }}
+                        title="删除会话"
+                        aria-label="删除会话"
+                      >
+                        <Trash2 size={14} aria-hidden="true" />
+                      </button>
+                    </div>
                   </div>
                   <strong>{conversation.title}</strong>
                   <div className="queue-prompt">{task?.prompt ?? "新的图片会话"}</div>
                   <small>{formatDateTime(conversation.updatedAt)}</small>
                   {task?.errorMessage ? <small className="toast-line error">{compactErrorMessage(task.errorMessage)}</small> : null}
-                </button>
+                </article>
                 );
               })
             ) : (
