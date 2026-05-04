@@ -1,8 +1,10 @@
 FROM docker:28-cli AS dockercli
 
+FROM oven/bun:1.3.9 AS bunbin
+
 FROM node:25-bookworm-slim AS bunbase
 
-RUN npm install -g bun@1.3.9
+COPY --from=bunbin /usr/local/bin/bun /usr/local/bin/bun
 
 FROM bunbase AS deps
 
