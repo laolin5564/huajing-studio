@@ -1,5 +1,5 @@
 import {
-  claimNextQueuedTask,
+  claimQueuedTasks,
   createGeneratedImage,
   createId,
   getGenerationTask,
@@ -15,13 +15,19 @@ import { normalizeImageConcurrency } from "./concurrency";
 import { callImageModel } from "./image-provider";
 import { isModelTimeoutMessage } from "./model-error";
 import { parseSize, saveGeneratedImageFile } from "./storage";
+import type { GenerationTaskRow } from "./types";
 
 export async function processNextQueuedTask(): Promise<boolean> {
-  const task = claimNextQueuedTask();
+  const task = claimQueuedTasks(1)[0];
   if (!task) {
     return false;
   }
 
+  await processClaimedTask(task);
+  return true;
+}
+
+async function processClaimedTask(task: GenerationTaskRow): Promise<void> {
   try {
     let extraRefIds: string[] = [];
     try {
@@ -43,7 +49,7 @@ export async function processNextQueuedTask(): Promise<boolean> {
     );
     const current = getGenerationTask(task.id);
     if (!current || current.status !== "processing") {
-      return true;
+      return;
     }
     updateTaskProgressStage(task.id, "saving");
     const { width, height } = parseSize(task.size);
@@ -51,7 +57,7 @@ export async function processNextQueuedTask(): Promise<boolean> {
     for (const item of generated) {
       const latest = getGenerationTask(task.id);
       if (!latest || latest.status !== "processing") {
-        return true;
+        return;
       }
 
       const imageId = createId("img");
@@ -78,7 +84,7 @@ export async function processNextQueuedTask(): Promise<boolean> {
     resetImageTimeoutStreak();
   } catch (error) {
     if (isTaskStopped(task.id)) {
-      return true;
+      return;
     }
     let message = error instanceof Error ? error.message : "生成任务处理失败";
     if (isModelTimeoutMessage(message)) {
@@ -91,14 +97,13 @@ export async function processNextQueuedTask(): Promise<boolean> {
     }
     markTaskFailed(task.id, message);
   }
-
-  return true;
 }
 
 export async function processQueuedTasks(maxTasks = 1): Promise<number> {
   const concurrency = normalizeImageConcurrency(maxTasks);
-  const results = await Promise.all(Array.from({ length: concurrency }, () => processNextQueuedTask()));
-  return results.filter(Boolean).length;
+  const tasks = claimQueuedTasks(concurrency);
+  await Promise.all(tasks.map((task) => processClaimedTask(task)));
+  return tasks.length;
 }
 
 async function runWithTaskCancellation<T>(

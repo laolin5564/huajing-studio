@@ -1355,28 +1355,50 @@ export function getTaskImages(taskId: string): GeneratedImageRow[] {
 }
 
 export function claimNextQueuedTask(): GenerationTaskRow | null {
+  return claimQueuedTasks(1)[0] ?? null;
+}
+
+export function claimQueuedTasks(limit: number): GenerationTaskRow[] {
   const database = getDb();
-  const queued = castRow<{ id: string }>(
+  const boundedLimit = normalizeImageConcurrency(limit);
+  const startedAt = nowIso();
+
+  try {
+    database.exec("BEGIN IMMEDIATE");
+    const queued = castRows<{ id: string }>(
+      database
+        .prepare("SELECT id FROM generation_tasks WHERE status = 'queued' ORDER BY created_at ASC, id ASC LIMIT ?")
+        .all(boundedLimit),
+    );
+
+    if (queued.length === 0) {
+      database.exec("COMMIT");
+      return [];
+    }
+
+    const ids = queued.map((row) => row.id);
+    const placeholders = ids.map(() => "?").join(", ");
     database
-    .prepare("SELECT id FROM generation_tasks WHERE status = 'queued' ORDER BY created_at ASC LIMIT 1")
-      .get(),
-  );
+      .prepare(
+        `
+        UPDATE generation_tasks
+        SET status = 'processing', progress_stage = 'requesting', started_at = ?, error_message = NULL
+        WHERE status = 'queued' AND id IN (${placeholders})
+      `,
+      )
+      .run(startedAt, ...ids);
 
-  if (!queued) {
-    return null;
+    database.exec("COMMIT");
+    const taskMap = new Map(ids.map((id) => [id, getGenerationTask(id)]));
+    return ids.map((id) => taskMap.get(id)).filter((task): task is GenerationTaskRow => Boolean(task));
+  } catch (error) {
+    try {
+      database.exec("ROLLBACK");
+    } catch {
+      // Ignore rollback failures when SQLite has already closed the transaction.
+    }
+    throw error;
   }
-
-  const result = database
-    .prepare(
-      "UPDATE generation_tasks SET status = 'processing', progress_stage = 'requesting', started_at = ?, error_message = NULL WHERE id = ? AND status = 'queued'",
-    )
-    .run(nowIso(), queued.id);
-
-  if (result.changes !== 1) {
-    return null;
-  }
-
-  return getGenerationTask(queued.id);
 }
 
 export function updateTaskProgressStage(taskId: string, stage: TaskProgressStage): void {
