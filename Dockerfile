@@ -1,18 +1,22 @@
 FROM docker:28-cli AS dockercli
 
-FROM node:25-bookworm-slim AS deps
+FROM node:25-bookworm-slim AS bunbase
+
+RUN npm install -g bun@1.3.9
+
+FROM bunbase AS deps
 
 WORKDIR /app
-RUN npm install -g bun@1.3.9
-COPY package.json bun.lock* ./
+COPY package.deps.json ./package.json
+COPY bun.lock* ./
 RUN bun install --frozen-lockfile || bun install
 
-FROM node:25-bookworm-slim AS builder
+FROM bunbase AS builder
 
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm install -g bun@1.3.9 && bun run build
+RUN bun run build
 
 FROM node:25-bookworm-slim AS runner
 

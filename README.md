@@ -252,7 +252,7 @@ bash scripts/update.sh
 3. `git fetch --tags`，快进更新 `main`，如存在目标 tag 则 checkout 到该 tag。
 4. 执行 `docker compose up -d --build` 重新构建并启动。
 
-注意：脚本会拒绝在有未提交本地改动的工作区继续执行；`data/`、`.env*` 不会被提交或覆盖。
+注意：脚本会拒绝在有未提交本地改动的工作区继续执行；`data/`、`.env*` 不会被提交或覆盖。Git 拉取阶段只会更新版本差异里的文件；Docker 构建阶段会复用缓存，依赖安装层只受 `package.deps.json` 和 `bun.lock` 影响，单纯修改版本号或业务代码不会重新安装依赖。
 
 ### 回滚与恢复
 
@@ -268,7 +268,7 @@ docker compose up -d --build
 
 ### 发布新版本
 
-1. 修改 `package.json` 的 `version`，例如 `0.1.1`。
+1. 修改 `package.json` 的 `version`，例如 `0.1.1`。如果新增、删除或升级依赖，需要同步更新 `package.deps.json` 并运行 `bun test tests/package-deps.test.ts`。
 2. 合并到 `main` 后打 tag：
 
 ```bash

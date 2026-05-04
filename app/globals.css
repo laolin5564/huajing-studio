@@ -14,6 +14,10 @@
   --danger: #be2d21;
   --warning: #a36a08;
   --success: #227354;
+  --surface-inverse: #10231d;
+  --surface-inverse-strong: #081511;
+  --ink-inverse: #f2faf5;
+  --muted-inverse: #b8c8bf;
   --focus-ring: rgba(8, 124, 115, 0.16);
   --shadow: 0 24px 60px rgba(20, 26, 22, 0.1);
   --shadow-soft: 0 12px 32px rgba(20, 26, 22, 0.07);
@@ -446,6 +450,12 @@ button.nav-link {
   color: var(--danger);
 }
 
+.badge.neutral {
+  border-color: rgba(95, 108, 100, 0.22);
+  background: rgba(95, 108, 100, 0.1);
+  color: #516058;
+}
+
 .empty-state {
   display: grid;
   min-height: 14rem;
@@ -582,6 +592,10 @@ button.nav-link {
 
 .status-dot.failed {
   background: var(--danger);
+}
+
+.status-dot.canceled {
+  background: #6c7870;
 }
 
 .toast-line {
@@ -1089,15 +1103,41 @@ button.nav-link {
 }
 
 .message-row.user .message-bubble {
-  border-color: #101713;
-  background: #101713;
-  color: #fff;
+  border-color: rgba(9, 39, 31, 0.92);
+  background:
+    radial-gradient(circle at top right, rgba(21, 87, 69, 0.32), transparent 42%),
+    linear-gradient(135deg, var(--surface-inverse), var(--surface-inverse-strong));
+  color: var(--ink-inverse);
 }
 
 .message-row.user .message-bubble .badge {
-  border-color: rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--ink-inverse);
+}
+
+.message-row.user .message-bubble .badge.success {
+  border-color: rgba(102, 211, 158, 0.28);
+  background: rgba(34, 115, 84, 0.24);
+  color: #96ebc4;
+}
+
+.message-row.user .message-bubble .badge.warning {
+  border-color: rgba(231, 175, 70, 0.3);
+  background: rgba(163, 106, 8, 0.24);
+  color: #ffd689;
+}
+
+.message-row.user .message-bubble .badge.danger {
+  border-color: rgba(247, 125, 111, 0.3);
+  background: rgba(190, 45, 33, 0.24);
+  color: #ffb1a8;
+}
+
+.message-row.user .message-bubble .badge.neutral {
+  border-color: rgba(215, 226, 219, 0.18);
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--muted-inverse);
 }
 
 .message-bubble p {
@@ -1138,11 +1178,11 @@ button.nav-link {
 .message-row.user .message-fixed-prompt {
   border-color: rgba(255, 255, 255, 0.18);
   background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.78);
+  color: var(--muted-inverse);
 }
 
 .message-row.user .message-fixed-prompt span {
-  color: #e6fff9;
+  color: #c7fff3;
 }
 
 .message-meta {
@@ -1175,11 +1215,11 @@ button.nav-link {
 .message-row.user .retry-task-button {
   border-color: rgba(255, 255, 255, 0.24);
   background: rgba(255, 255, 255, 0.12);
-  color: #fff;
+  color: var(--ink-inverse);
 }
 
 .message-row.user .message-meta {
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--muted-inverse);
 }
 
 .message-bubble .image-card {
@@ -1359,6 +1399,7 @@ button.nav-link {
   border: 1px solid rgba(205, 215, 208, 0.95);
   border-radius: 0.7rem;
   background: rgba(255, 255, 255, 0.9);
+  color: var(--ink);
 }
 
 .chat-reference-preview img,
@@ -1371,6 +1412,7 @@ button.nav-link {
 
 .chat-reference-preview span,
 .message-reference-card span {
+  color: var(--ink);
   font-weight: 750;
 }
 

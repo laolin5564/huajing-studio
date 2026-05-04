@@ -51,6 +51,7 @@ interface ChatImageAttachment {
 
 const modes: WorkbenchMode[] = ["text_to_image", "image_to_image"];
 const quantityOptions = [1, 2, 4] as const;
+const supportedImageMimeTypes = ["image/png", "image/jpeg", "image/webp"] as const;
 
 function taskDisplayLabel(task: PublicTask): string {
   return task.progressStage ? progressStageLabels[task.progressStage] : statusLabels[task.status];
@@ -78,6 +79,116 @@ const defaultPromptByMode: Record<WorkbenchMode, string> = {
   text_to_image: "一张简约高级的公司产品宣传海报，白色背景，柔和自然光，科技感，留白充足",
   image_to_image: "保留主体特征，生成更高级干净的商业摄影场景，光线自然，质感清晰",
 };
+
+function isSupportedImageMimeType(type: string): boolean {
+  return supportedImageMimeTypes.includes(type as (typeof supportedImageMimeTypes)[number]);
+}
+
+function imageExtensionFromMimeType(type: string): string {
+  if (type === "image/jpeg") return "jpg";
+  if (type === "image/webp") return "webp";
+  return "png";
+}
+
+function makeClipboardImageFile(blob: Blob, prefix: string, index = 0): File | null {
+  const type = blob.type || "image/png";
+  if (!isSupportedImageMimeType(type)) {
+    return null;
+  }
+  const extension = imageExtensionFromMimeType(type);
+  return new File([blob], `${prefix}-${Date.now()}-${index}.${extension}`, { type });
+}
+
+async function imageFileFromUrl(url: string, prefix: string, index = 0): Promise<File | null> {
+  if (!url) return null;
+  if (!url.startsWith("data:image/") && !/^https?:\/\//i.test(url)) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    return makeClipboardImageFile(blob, prefix, index);
+  } catch {
+    return null;
+  }
+}
+
+async function imageFilesFromHtml(html: string, prefix: string): Promise<File[]> {
+  if (!html.trim()) return [];
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const urls = Array.from(doc.querySelectorAll("img"))
+    .flatMap((img) => [img.getAttribute("src"), img.getAttribute("data-src"), img.getAttribute("currentSrc")])
+    .filter((url): url is string => Boolean(url));
+
+  const files = await Promise.all(urls.map((url, index) => imageFileFromUrl(url, prefix, index)));
+  return files.filter((file): file is File => file !== null);
+}
+
+async function imageFilesFromPlainText(text: string, prefix: string): Promise<File[]> {
+  const value = text.trim();
+  if (!value) return [];
+  const file = await imageFileFromUrl(value, prefix);
+  return file ? [file] : [];
+}
+
+function imageFilesFromDataTransfer(dataTransfer: DataTransfer): File[] {
+  const itemFiles = Array.from(dataTransfer.items ?? [])
+    .map((item) => (item.kind === "file" ? item.getAsFile() : null))
+    .filter((file): file is File => file !== null && file.type.startsWith("image/"));
+  if (itemFiles.length > 0) {
+    return itemFiles;
+  }
+  return Array.from(dataTransfer.files ?? []).filter((file) => file.type.startsWith("image/"));
+}
+
+async function imageFilesFromClipboardData(clipboardData: DataTransfer, prefix: string): Promise<File[]> {
+  const directFiles = imageFilesFromDataTransfer(clipboardData);
+  if (directFiles.length > 0) {
+    return directFiles;
+  }
+
+  const htmlFiles = await imageFilesFromHtml(clipboardData.getData("text/html"), prefix);
+  if (htmlFiles.length > 0) {
+    return htmlFiles;
+  }
+
+  return imageFilesFromPlainText(clipboardData.getData("text/plain"), prefix);
+}
+
+async function readClipboardImageFiles(prefix: string): Promise<File[]> {
+  const files: File[] = [];
+
+  if (navigator.clipboard?.read) {
+    const clipboardItems = await navigator.clipboard.read();
+    for (const item of clipboardItems) {
+      const imageType = item.types.find((type) => type.startsWith("image/"));
+      if (imageType) {
+        const file = makeClipboardImageFile(await item.getType(imageType), prefix, files.length);
+        if (file) files.push(file);
+        continue;
+      }
+
+      if (item.types.includes("text/html")) {
+        const html = await (await item.getType("text/html")).text();
+        files.push(...await imageFilesFromHtml(html, prefix));
+        continue;
+      }
+
+      if (item.types.includes("text/plain")) {
+        const text = await (await item.getType("text/plain")).text();
+        files.push(...await imageFilesFromPlainText(text, prefix));
+      }
+    }
+  }
+
+  if (files.length === 0 && navigator.clipboard?.readText) {
+    files.push(...await imageFilesFromPlainText(await navigator.clipboard.readText(), prefix));
+  }
+
+  return files;
+}
 
 export function WorkbenchClient() {
   const [mode, setMode] = useState<WorkbenchMode>("text_to_image");
@@ -208,7 +319,7 @@ export function WorkbenchClient() {
   }
 
   function isSupportedImageFile(file: File): boolean {
-    return ["image/png", "image/jpeg", "image/webp"].includes(file.type);
+    return isSupportedImageMimeType(file.type);
   }
 
   function handleFilesChange(files: FileList | File[] | null): void {
@@ -332,6 +443,15 @@ export function WorkbenchClient() {
     setIsDraggingSourceImage(true);
   }
 
+  async function handleSourcePaste(event: ClipboardEvent<HTMLButtonElement>): Promise<void> {
+    const clipboardData = event.clipboardData;
+    const files = await imageFilesFromClipboardData(clipboardData, "clipboard-image");
+    if (files.length === 0) return;
+    event.preventDefault();
+    handleFilesChange(files);
+    setMessage("已从剪贴板读取图片。");
+  }
+
   function handleChatSourceDrop(event: DragEvent<HTMLDivElement>): void {
     event.preventDefault();
     setIsDraggingChatSourceImage(false);
@@ -349,11 +469,13 @@ export function WorkbenchClient() {
     setIsDraggingChatSourceImage(true);
   }
 
-  function handleChatSourcePaste(event: ClipboardEvent<HTMLDivElement>): void {
-    const files = getValidImageFiles(event.clipboardData.files);
+  async function handleChatSourcePaste(event: ClipboardEvent<HTMLDivElement>): Promise<void> {
+    const clipboardData = event.clipboardData;
+    const files = await imageFilesFromClipboardData(clipboardData, "chat-reference");
     if (files.length === 0) return;
     event.preventDefault();
     handleChatSourceFilesChange(files);
+    setMessage("已从剪贴板读取图片。");
   }
 
   async function handlePasteImage(): Promise<void> {
@@ -363,20 +485,13 @@ export function WorkbenchClient() {
     }
 
     try {
-      const clipboardItems = await navigator.clipboard.read();
-      for (const item of clipboardItems) {
-        const imageType = item.types.find((type) => type.startsWith("image/"));
-        if (!imageType) {
-          continue;
-        }
-        const blob = await item.getType(imageType);
-        const extension = imageType.split("/")[1] || "png";
-        const file = new File([blob], `clipboard-image-${Date.now()}.${extension}`, { type: imageType });
-        handleFilesChange([file]);
+      const files = await readClipboardImageFiles("clipboard-image");
+      if (files.length > 0) {
+        handleFilesChange(files);
         setMessage("已从剪贴板读取图片");
         return;
       }
-      setError("剪贴板里没有图片");
+      setError("未识别到可用图片。请直接按 ⌘V 粘贴到上传区域，或把图片拖进来。");
     } catch {
       setError("读取剪贴板失败，请确认浏览器权限，或改用拖拽/选择文件上传");
     }
@@ -389,19 +504,13 @@ export function WorkbenchClient() {
     }
 
     try {
-      const clipboardItems = await navigator.clipboard.read();
-      for (const item of clipboardItems) {
-        const imageType = item.types.find((type) => type.startsWith("image/"));
-        if (!imageType) {
-          continue;
-        }
-        const blob = await item.getType(imageType);
-        const extension = imageType.split("/")[1] || "png";
-        const file = new File([blob], `chat-reference-${Date.now()}.${extension}`, { type: imageType });
-        handleChatSourceFilesChange([file]);
+      const files = await readClipboardImageFiles("chat-reference");
+      if (files.length > 0) {
+        handleChatSourceFilesChange(files);
+        setMessage("已从剪贴板读取图片");
         return;
       }
-      setError("剪贴板里没有图片");
+      setError("未识别到可用图片。请直接按 ⌘V 粘贴到会话输入区，或把图片拖进来。");
     } catch {
       setError("读取剪贴板失败，请确认浏览器权限，或改用拖拽/选择文件上传");
     }
@@ -842,6 +951,7 @@ export function WorkbenchClient() {
                   onDragOver={handleSourceDragOver}
                   onDragEnter={handleSourceDragOver}
                   onDragLeave={() => setIsDraggingSourceImage(false)}
+                  onPaste={handleSourcePaste}
                 >
                   {sourcePreviews.length > 0 ? (
                     <div className="source-preview-grid">
@@ -1462,7 +1572,8 @@ function ConversationMessageItem({
   const isUser = message.role === "user";
   const images = message.images?.length ? message.images : message.image ? [message.image] : [];
   const canStopTask = task?.status === "queued" || task?.status === "processing";
-  const canRetryTask = !isUser && task?.status === "failed" && task.errorMessage !== "用户已停止生成";
+  const isStoppedTask = task?.status === "failed" && task.errorMessage === "用户已停止生成";
+  const canRetryTask = !isUser && task?.status === "failed";
   const shouldShowTaskError =
     task?.errorMessage &&
     !isUser &&
@@ -1482,8 +1593,8 @@ function ConversationMessageItem({
           <span>{isUser ? "你" : "image-2"}</span>
           {task ? (
             <div className="message-meta-actions">
-              <span className={clsx("badge", task.status === "succeeded" && "success", task.status === "failed" && "danger", task.status === "processing" && "warning")}>
-                <span className={clsx("status-dot", task.status)} />
+              <span className={clsx("badge", task.status === "succeeded" && "success", task.status === "failed" && (isStoppedTask ? "neutral" : "danger"), task.status === "processing" && "warning")}>
+                <span className={clsx("status-dot", isStoppedTask ? "canceled" : task.status)} />
                 {taskDisplayLabel(task)}
               </span>
               {canStopTask ? (
@@ -1506,17 +1617,19 @@ function ConversationMessageItem({
                     disabled={retryingTaskId === task.id}
                   >
                     <RefreshCw size={13} aria-hidden="true" />
-                    {retryingTaskId === task.id ? "重试中" : "重试"}
+                    {retryingTaskId === task.id ? "重试中" : isStoppedTask ? "重新生成" : "重试"}
                   </button>
-                  <button
-                    className="button subtle retry-task-button"
-                    type="button"
-                    onClick={() => onRetryTask(task, "low_concurrency")}
-                    disabled={retryingTaskId === task.id}
-                  >
-                    <Gauge size={13} aria-hidden="true" />
-                    低并发重试
-                  </button>
+                  {!isStoppedTask ? (
+                    <button
+                      className="button subtle retry-task-button"
+                      type="button"
+                      onClick={() => onRetryTask(task, "low_concurrency")}
+                      disabled={retryingTaskId === task.id}
+                    >
+                      <Gauge size={13} aria-hidden="true" />
+                      低并发重试
+                    </button>
+                  ) : null}
                 </>
               ) : null}
             </div>
