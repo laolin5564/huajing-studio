@@ -260,7 +260,7 @@ async function requestOpenAIOAuthImage(
     headers["chatgpt-account-id"] = settings.chatGPTAccountId;
   }
   if (task.conversation_id) {
-    const sessionId = `huajing-${task.conversation_id}`;
+    const sessionId = `canvas-realm-${task.conversation_id}`;
     headers.conversation_id = sessionId;
     headers.session_id = sessionId;
   }

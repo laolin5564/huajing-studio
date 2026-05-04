@@ -2,18 +2,18 @@
 set -Eeuo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REPO_SLUG="${UPDATE_REPO:-laolin5564/huajing-studio}"
+REPO_SLUG="${UPDATE_REPO:-laolin5564/canvas-realm-gpt-image-2-studio}"
 GITHUB_API="${UPDATE_CHECK_URL:-https://api.github.com/repos/${REPO_SLUG}/releases/latest}"
 UPDATE_TAG="${1:-${UPDATE_TAG:-}}"
 BACKUP_DIR="${BACKUP_DIR:-${REPO_DIR}/backups}"
 COMPOSE_BIN="${COMPOSE_BIN:-}"
 
 log() {
-  printf '[huajing-update] %s\n' "$*"
+  printf '[canvas-realm-update] %s\n' "$*"
 }
 
 fail() {
-  printf '[huajing-update] ERROR: %s\n' "$*" >&2
+  printf '[canvas-realm-update] ERROR: %s\n' "$*" >&2
   exit 1
 }
 

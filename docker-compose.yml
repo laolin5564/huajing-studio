@@ -1,7 +1,7 @@
 services:
   image-gen-system:
     build: .
-    container_name: "${CONTAINER_NAME:-huajing-studio}"
+    container_name: "${CONTAINER_NAME:-canvas-realm-studio}"
     ports:
       - "${APP_PORT:-3000}:3000"
     environment:
@@ -15,12 +15,12 @@ services:
       COST_PER_IMAGE: "${COST_PER_IMAGE:-0.04}"
       APP_BASE_URL: "${APP_BASE_URL:-}"
       SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-false}"
-      UPDATE_REPO: "laolin5564/huajing-studio"
-      UPDATE_CHECK_URL: "https://api.github.com/repos/laolin5564/huajing-studio/releases/latest"
+      UPDATE_REPO: "laolin5564/canvas-realm-gpt-image-2-studio"
+      UPDATE_CHECK_URL: "https://api.github.com/repos/laolin5564/canvas-realm-gpt-image-2-studio/releases/latest"
       # Web 一键更新默认关闭。确认已按 README 挂载 docker socket，并把 Git 项目按宿主机相同绝对路径挂载后再改为 true。
       WEB_UPDATE_ENABLED: "${WEB_UPDATE_ENABLED:-false}"
       WEB_UPDATE_REPO_DIR: "${WEB_UPDATE_REPO_DIR:-/app}"
-      WEB_UPDATE_LOCK_FILE: "${WEB_UPDATE_LOCK_FILE:-/tmp/huajing-studio-web-update.lock}"
+      WEB_UPDATE_LOCK_FILE: "${WEB_UPDATE_LOCK_FILE:-/tmp/canvas-realm-studio-web-update.lock}"
     volumes:
       - ./data:/app/data
       # 启用 Web 一键更新时需要取消下面两行注释，并用绝对路径启动：

@@ -19,7 +19,7 @@ function toCurrentUser(user: UserRow): CurrentUser {
 }
 
 test("conversation owner can access generated images from tasks created by an admin in that conversation", async () => {
-  const workspace = mkdtempSync(path.join(tmpdir(), "huajing-permissions-test-"));
+  const workspace = mkdtempSync(path.join(tmpdir(), "canvas-realm-permissions-test-"));
   process.env.DATABASE_URL = path.join(workspace, "app.db");
   process.env.IMAGE_STORAGE_DIR = path.join(workspace, "images");
 

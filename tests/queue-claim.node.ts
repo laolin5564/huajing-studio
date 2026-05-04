@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 test("claimQueuedTasks claims multiple queued tasks in one worker batch", async () => {
-  const workspace = mkdtempSync(path.join(tmpdir(), "huajing-queue-claim-test-"));
+  const workspace = mkdtempSync(path.join(tmpdir(), "canvas-realm-queue-claim-test-"));
   process.env.DATABASE_URL = path.join(workspace, "app.db");
   process.env.IMAGE_STORAGE_DIR = path.join(workspace, "images");
 

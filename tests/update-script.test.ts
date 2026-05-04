@@ -9,7 +9,7 @@ const updateScript = path.join(repoRoot, "scripts", "update.sh");
 
 describe("update script backups", () => {
   test("backs up only existing env files", () => {
-    const workspace = mkdtempSync(path.join(tmpdir(), "huajing-update-test-"));
+    const workspace = mkdtempSync(path.join(tmpdir(), "canvas-realm-update-test-"));
     const backupDir = path.join(workspace, "backups");
     try {
       mkdirSync(path.join(workspace, "data"));
@@ -34,7 +34,7 @@ describe("update script backups", () => {
   });
 
   test("registers the deployed repo as a git safe directory", () => {
-    const workspace = mkdtempSync(path.join(tmpdir(), "huajing-safe-dir-test-"));
+    const workspace = mkdtempSync(path.join(tmpdir(), "canvas-realm-safe-dir-test-"));
     const homeDir = path.join(workspace, "home");
     const repoDir = path.join(workspace, "repo");
 

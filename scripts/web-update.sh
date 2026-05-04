@@ -5,15 +5,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO_DIR="${WEB_UPDATE_REPO_DIR:-$DEFAULT_REPO_DIR}"
 UPDATE_SCRIPT="${REPO_DIR}/scripts/update.sh"
-LOCK_PATH="${WEB_UPDATE_LOCK_FILE:-/tmp/huajing-studio-web-update.lock}"
+LOCK_PATH="${WEB_UPDATE_LOCK_FILE:-/tmp/canvas-realm-studio-web-update.lock}"
 LOCK_DIR="${LOCK_PATH}.d"
 
 log() {
-  printf '[huajing-web-update] %s\n' "$*"
+  printf '[canvas-realm-web-update] %s\n' "$*"
 }
 
 fail() {
-  printf '[huajing-web-update] ERROR: %s\n' "$*" >&2
+  printf '[canvas-realm-web-update] ERROR: %s\n' "$*" >&2
   exit 1
 }
 
@@ -58,12 +58,12 @@ if [[ -f /.dockerenv ]]; then
     -e UPDATE_CHECK_URL="${UPDATE_CHECK_URL:-}" \
     -e UPDATE_TAG="${UPDATE_TAG:-}" \
     -e BACKUP_DIR="${BACKUP_DIR:-}" \
-    -e HUAJING_SAFE_REPO_DIR="$REPO_DIR" \
+    -e CANVAS_REALM_SAFE_REPO_DIR="$REPO_DIR" \
     -v "$REPO_DIR:$REPO_DIR" \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -w "$REPO_DIR" \
     docker:28-cli \
-    sh -lc 'apk add --no-cache bash curl python3 >/dev/null && git config --global --add safe.directory "$HUAJING_SAFE_REPO_DIR" && chmod +x scripts/update.sh && bash scripts/update.sh'
+    sh -lc 'apk add --no-cache bash curl python3 >/dev/null && git config --global --add safe.directory "$CANVAS_REALM_SAFE_REPO_DIR" && chmod +x scripts/update.sh && bash scripts/update.sh'
 fi
 
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then

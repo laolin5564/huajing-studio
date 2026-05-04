@@ -1,7 +1,7 @@
 import packageJson from "../package.json";
 
 export const appVersion = packageJson.version;
-export const defaultUpdateRepo = "laolin5564/huajing-studio";
+export const defaultUpdateRepo = "laolin5564/canvas-realm-gpt-image-2-studio";
 export const defaultUpdateCheckUrl = `https://api.github.com/repos/${defaultUpdateRepo}/releases/latest`;
 
 export function normalizeVersion(version: string): string {

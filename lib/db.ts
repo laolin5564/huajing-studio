@@ -1004,7 +1004,7 @@ export function getPublicSiteSettings(): {
 } {
   const registration = getRegistrationSettings();
   return {
-    siteTitle: getAppSetting("site_title") || "画境工坊",
+    siteTitle: getAppSetting("site_title") || "Canvas Realm Studio",
     siteSubtitle: getAppSetting("site_subtitle") || "image-2 workspace",
     registrationEnabled: registration.registrationEnabled || countUsers() === 0,
   };

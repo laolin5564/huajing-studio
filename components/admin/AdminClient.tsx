@@ -634,7 +634,7 @@ export function AdminClient() {
                 </div>
                 <div className="field">
                   <label>更新源</label>
-                  <span>{systemUpdate?.updateRepo ?? "laolin5564/huajing-studio"}</span>
+                  <span>{systemUpdate?.updateRepo ?? "laolin5564/canvas-realm-gpt-image-2-studio"}</span>
                 </div>
               </div>
               {systemUpdate?.releaseNotesUrl ? (
@@ -991,7 +991,7 @@ export function AdminClient() {
                     className="input"
                     value={siteTitle}
                     onChange={(event) => setSiteTitle(event.target.value)}
-                    placeholder="画境工坊"
+                    placeholder="Canvas Realm Studio"
                   />
                 </div>
                 <div className="field">

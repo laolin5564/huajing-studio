@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "internal-image-generation-system",
+      "name": "canvas-realm-gpt-image-2-studio",
       "dependencies": {
         "clsx": "^2.1.1",
         "concurrently": "^9.2.1",

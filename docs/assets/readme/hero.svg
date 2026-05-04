@@ -48,8 +48,8 @@
   <circle cx="220" cy="610" r="220" fill="#F4E5D4" opacity="0.36"/>
 
   <g class="font">
-    <text x="90" y="110" class="title">画境工坊</text>
-    <text x="92" y="152" class="subtitle">团队级 AI 图片生成工作台 · 自托管 · 会话式 · 可运营</text>
+    <text x="90" y="110" class="title">Canvas Realm Studio</text>
+    <text x="92" y="152" class="subtitle">画境工坊 · GPT Image 2 / Image-2 团队工作台</text>
 
     <g transform="translate(92 190)">
       <rect width="145" height="44" rx="22" fill="#0D1B16"/>

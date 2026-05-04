@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 test("data management keeps template scope and image deletion references consistent", async () => {
-  const workspace = mkdtempSync(path.join(tmpdir(), "huajing-data-management-test-"));
+  const workspace = mkdtempSync(path.join(tmpdir(), "canvas-realm-data-management-test-"));
   process.env.DATABASE_URL = path.join(workspace, "app.db");
   process.env.IMAGE_STORAGE_DIR = path.join(workspace, "images");
 

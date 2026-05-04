@@ -1,5 +1,5 @@
 {
-  "name": "huajing-studio",
+  "name": "canvas-realm-gpt-image-2-studio",
   "version": "0.2.11",
   "private": false,
   "scripts": {
@@ -34,16 +34,16 @@
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   },
-  "description": "团队级 AI 图片生成工作台，支持 OpenAI-compatible 图片接口与实验性 OpenAI OAuth。",
+  "description": "Self-hosted GPT Image 2 / Image-2 workbench for teams, with text-to-image, image-to-image, templates, quotas, history and admin dashboard.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/laolin5564/huajing-studio.git"
+    "url": "git+https://github.com/laolin5564/canvas-realm-gpt-image-2-studio.git"
   },
   "bugs": {
-    "url": "https://github.com/laolin5564/huajing-studio/issues"
+    "url": "https://github.com/laolin5564/canvas-realm-gpt-image-2-studio/issues"
   },
-  "homepage": "https://github.com/laolin5564/huajing-studio#readme",
+  "homepage": "https://github.com/laolin5564/canvas-realm-gpt-image-2-studio#readme",
   "engines": {
     "node": ">=25.0.0",
     "bun": ">=1.3.0"

@@ -1,5 +1,5 @@
 {
-  "name": "huajing-studio-deps",
+  "name": "canvas-realm-studio-deps",
   "private": true,
   "dependencies": {
     "clsx": "^2.1.1",

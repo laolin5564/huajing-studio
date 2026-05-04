@@ -47,7 +47,7 @@ export async function checkSystemUpdate(): Promise<SystemUpdateInfo> {
   const response = await fetch(updateUrl, {
     headers: {
       Accept: "application/vnd.github+json",
-      "User-Agent": `huajing-studio/${appVersion}`,
+      "User-Agent": `canvas-realm-studio/${appVersion}`,
     },
     cache: "no-store",
     signal: updateCheckSignal(),
