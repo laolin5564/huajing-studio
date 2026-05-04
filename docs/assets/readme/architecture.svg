@@ -1,0 +1,85 @@
+<svg width="1280" height="640" viewBox="0 0 1280 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1280" y2="640" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FAF7"/>
+      <stop offset="1" stop-color="#EFF6F1"/>
+    </linearGradient>
+    <linearGradient id="dark" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#0A2A22"/>
+      <stop offset="1" stop-color="#111A15"/>
+    </linearGradient>
+    <filter id="shadow" x="-18%" y="-18%" width="136%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#183629" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#729084"/>
+    </marker>
+    <style>
+      .font { font-family: Inter, "PingFang SC", "Microsoft YaHei", Arial, sans-serif; }
+      .title { font-size: 34px; font-weight: 850; fill: #111713; }
+      .sub { font-size: 18px; font-weight: 500; fill: #66756D; }
+      .label { font-size: 21px; font-weight: 850; fill: #111713; }
+      .muted { font-size: 15px; font-weight: 600; fill: #718078; }
+      .white { fill: #F8FFFC; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <g class="font">
+    <text x="88" y="92" class="title">轻量自托管架构</text>
+    <text x="88" y="126" class="sub">Web、SQLite、Worker 和模型接口保持清晰边界，适合内网部署和持续迭代。</text>
+  </g>
+
+  <g transform="translate(94 198)" filter="url(#shadow)" class="font">
+    <rect width="206" height="154" rx="22" fill="#FFFFFF" stroke="#D8E2DA"/>
+    <text x="30" y="56" class="label">用户浏览器</text>
+    <text x="30" y="88" class="muted">工作台 / 历史 / 模板</text>
+    <text x="30" y="116" class="muted">上传图片与发起任务</text>
+  </g>
+
+  <g transform="translate(388 156)" filter="url(#shadow)" class="font">
+    <rect width="250" height="238" rx="24" fill="url(#dark)"/>
+    <text x="32" y="58" class="label white">Next.js App</text>
+    <text x="32" y="94" class="muted white">API Routes</text>
+    <text x="32" y="122" class="muted white">权限校验</text>
+    <text x="32" y="150" class="muted white">任务创建</text>
+    <text x="32" y="178" class="muted white">文件访问控制</text>
+  </g>
+
+  <g transform="translate(724 108)" filter="url(#shadow)" class="font">
+    <rect width="210" height="150" rx="22" fill="#FFFFFF" stroke="#D8E2DA"/>
+    <text x="28" y="56" class="label">SQLite</text>
+    <text x="28" y="88" class="muted">用户、会话、任务</text>
+    <text x="28" y="116" class="muted">模板、额度、配置</text>
+  </g>
+
+  <g transform="translate(724 322)" filter="url(#shadow)" class="font">
+    <rect width="210" height="150" rx="22" fill="#FFFFFF" stroke="#D8E2DA"/>
+    <text x="28" y="56" class="label">本地文件</text>
+    <text x="28" y="88" class="muted">生成图</text>
+    <text x="28" y="116" class="muted">上传参考图</text>
+  </g>
+
+  <g transform="translate(1012 198)" filter="url(#shadow)" class="font">
+    <rect width="190" height="154" rx="22" fill="#FFFFFF" stroke="#D8E2DA"/>
+    <text x="26" y="56" class="label">图片接口</text>
+    <text x="26" y="88" class="muted">sub2api</text>
+    <text x="26" y="116" class="muted">OpenAI-compatible</text>
+  </g>
+
+  <g class="font">
+    <path d="M300 275 C338 275 350 275 388 275" stroke="#729084" stroke-width="3" marker-end="url(#arrow)"/>
+    <path d="M638 220 C676 198 686 184 724 174" stroke="#729084" stroke-width="3" marker-end="url(#arrow)"/>
+    <path d="M638 318 C676 354 686 378 724 398" stroke="#729084" stroke-width="3" marker-end="url(#arrow)"/>
+    <path d="M934 275 C966 275 980 275 1012 275" stroke="#729084" stroke-width="3" marker-end="url(#arrow)"/>
+    <text x="318" y="258" class="muted">请求</text>
+    <text x="648" y="178" class="muted">读写</text>
+    <text x="654" y="384" class="muted">保存</text>
+    <text x="952" y="258" class="muted">调用</text>
+  </g>
+
+  <g transform="translate(392 456)" class="font">
+    <rect width="494" height="58" rx="18" fill="#FFFFFF" stroke="#D8E2DA"/>
+    <text x="26" y="37" class="muted">Worker 轮询队列，执行生成任务，写回图片和状态；Web 负责交互与权限。</text>
+  </g>
+</svg>

@@ -1,0 +1,100 @@
+<svg width="1280" height="760" viewBox="0 0 1280 760" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1280" y2="760" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7FAF8"/>
+      <stop offset="1" stop-color="#F6F0E8"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#FAFCFA"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#0A2A22"/>
+      <stop offset="1" stop-color="#132018"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#1D362B" flood-opacity="0.12"/>
+    </filter>
+    <style>
+      .font { font-family: Inter, "PingFang SC", "Microsoft YaHei", Arial, sans-serif; }
+      .title { font-size: 34px; font-weight: 850; fill: #111713; }
+      .sub { font-size: 18px; font-weight: 500; fill: #66756D; }
+      .label { font-size: 18px; font-weight: 800; fill: #111713; }
+      .muted { font-size: 14px; font-weight: 600; fill: #718078; }
+      .num { font-size: 34px; font-weight: 850; fill: #111713; }
+      .white { fill: #F8FFFC; }
+      .good { fill: #1E8065; }
+      .warn { fill: #B37513; }
+      .bad { fill: #C53D32; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="760" fill="url(#bg)"/>
+  <g class="font">
+    <text x="88" y="92" class="title">从生成工具到运营后台</text>
+    <text x="88" y="126" class="sub">账号、分组、额度、模型、健康度和在线更新都可以在后台闭环管理。</text>
+  </g>
+
+  <g transform="translate(88 166)" filter="url(#shadow)">
+    <rect width="1104" height="510" rx="28" fill="#FFFFFF" stroke="#D8E2DA"/>
+    <g transform="translate(36 34)">
+      <rect width="246" height="128" rx="20" fill="url(#green)"/>
+      <text x="26" y="42" class="font muted white">今日生成</text>
+      <text x="26" y="92" class="font num white">248</text>
+      <rect x="150" y="76" width="70" height="28" rx="14" fill="#203A32"/>
+      <text x="169" y="95" class="font muted white">+18%</text>
+    </g>
+
+    <g transform="translate(312 34)">
+      <rect width="246" height="128" rx="20" fill="url(#card)" stroke="#D8E2DA"/>
+      <text x="26" y="42" class="font muted">成功率</text>
+      <text x="26" y="92" class="font num">96.4%</text>
+      <rect x="158" y="76" width="64" height="28" rx="14" fill="#EAF6F0"/>
+      <text x="177" y="95" class="font muted good">稳定</text>
+    </g>
+
+    <g transform="translate(588 34)">
+      <rect width="246" height="128" rx="20" fill="url(#card)" stroke="#D8E2DA"/>
+      <text x="26" y="42" class="font muted">平均耗时</text>
+      <text x="26" y="92" class="font num">42s</text>
+      <rect x="158" y="76" width="64" height="28" rx="14" fill="#FFF5E3"/>
+      <text x="177" y="95" class="font muted warn">观察</text>
+    </g>
+
+    <g transform="translate(864 34)">
+      <rect width="204" height="128" rx="20" fill="url(#card)" stroke="#D8E2DA"/>
+      <text x="24" y="42" class="font muted">本月额度</text>
+      <text x="24" y="92" class="font num">73%</text>
+    </g>
+
+    <g transform="translate(36 196)">
+      <rect width="514" height="260" rx="22" fill="#F8FAF8" stroke="#D8E2DA"/>
+      <text x="26" y="44" class="font label">账号与分组</text>
+      <text x="26" y="70" class="font muted">管理员可以设置角色、分组、额度和用量。</text>
+      <g transform="translate(26 102)">
+        <rect width="462" height="46" rx="12" fill="#FFFFFF" stroke="#D8E2DA"/>
+        <text x="18" y="30" class="font muted">admin@team.local</text>
+        <text x="250" y="30" class="font muted">管理员</text>
+        <text x="360" y="30" class="font muted">42 / 100</text>
+        <rect y="68" width="462" height="46" rx="12" fill="#FFFFFF" stroke="#D8E2DA"/>
+        <text x="18" y="98" class="font muted">designer@team.local</text>
+        <text x="250" y="98" class="font muted">成员</text>
+        <text x="360" y="98" class="font muted">17 / 80</text>
+      </g>
+    </g>
+
+    <g transform="translate(590 196)">
+      <rect width="478" height="260" rx="22" fill="#F8FAF8" stroke="#D8E2DA"/>
+      <text x="26" y="44" class="font label">模型与更新</text>
+      <text x="26" y="70" class="font muted">Base URL、API Key、并发、OAuth 和 Web 更新集中配置。</text>
+      <g transform="translate(26 102)">
+        <rect width="426" height="42" rx="12" fill="#FFFFFF" stroke="#D8E2DA"/>
+        <text x="18" y="27" class="font muted">gpt-image-2 · OpenAI-compatible</text>
+        <rect y="62" width="426" height="42" rx="12" fill="#FFFFFF" stroke="#D8E2DA"/>
+        <text x="18" y="89" class="font muted">并发请求数：100</text>
+        <rect y="122" width="426" height="42" rx="12" fill="#FFFFFF" stroke="#D8E2DA"/>
+        <text x="18" y="149" class="font muted">最新版本：v0.2.11</text>
+      </g>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,104 @@
+<svg width="1280" height="760" viewBox="0 0 1280 760" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1280" y2="760" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FAF7"/>
+      <stop offset="1" stop-color="#EEF5F0"/>
+    </linearGradient>
+    <linearGradient id="dark" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#0B261F"/>
+      <stop offset="1" stop-color="#0E1713"/>
+    </linearGradient>
+    <linearGradient id="img1" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FFFDF8"/>
+      <stop offset="0.45" stop-color="#E6ECEF"/>
+      <stop offset="1" stop-color="#17324A"/>
+    </linearGradient>
+    <linearGradient id="img2" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FBF6ED"/>
+      <stop offset="0.56" stop-color="#D6E9E0"/>
+      <stop offset="1" stop-color="#6E927F"/>
+    </linearGradient>
+    <linearGradient id="img3" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="0.44" stop-color="#ECE6DF"/>
+      <stop offset="1" stop-color="#714C35"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#173227" flood-opacity="0.14"/>
+    </filter>
+    <style>
+      .font { font-family: Inter, "PingFang SC", "Microsoft YaHei", Arial, sans-serif; }
+      .title { font-size: 34px; font-weight: 800; fill: #111713; }
+      .subtitle { font-size: 18px; font-weight: 500; fill: #66756D; }
+      .label { font-size: 18px; font-weight: 800; fill: #111713; }
+      .muted { font-size: 14px; font-weight: 600; fill: #718078; }
+      .white { fill: #F8FFFC; }
+      .pill { font-size: 13px; font-weight: 800; fill: #287761; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="760" fill="url(#bg)"/>
+  <g class="font">
+    <text x="88" y="92" class="title">会话就是资产</text>
+    <text x="88" y="126" class="subtitle">一组结果、一张选中基准图、一次固定提示词，可以连续处理很多图片。</text>
+  </g>
+
+  <g transform="translate(88 166)" filter="url(#shadow)">
+    <rect width="1104" height="510" rx="28" fill="#FFFFFF" stroke="#D8E2DA"/>
+    <rect x="1" y="1" width="1102" height="88" rx="27" fill="#FCFDFB"/>
+    <text x="36" y="48" class="font label">不改变衣物样式，给这套衣物换一个中式庭院场景...</text>
+    <text x="36" y="73" class="font muted">开启后，后续发到这个会话的图片都会自动套用同一套提示词。</text>
+
+    <g transform="translate(36 116)">
+      <rect width="310" height="334" rx="18" fill="#F7FAF8" stroke="#D8E2DA"/>
+      <rect x="20" y="20" width="270" height="50" rx="13" fill="#FFFFFF" stroke="#CFE0D7"/>
+      <text x="42" y="52" class="font pill">会话固定提示词</text>
+      <text x="20" y="108" class="font muted">固定规则</text>
+      <rect x="20" y="126" width="270" height="116" rx="14" fill="#FFFFFF" stroke="#D8E2DA"/>
+      <text x="40" y="160" class="font muted">不改变主体特征，</text>
+      <text x="40" y="186" class="font muted">统一换成清爽商业摄影场景，</text>
+      <text x="40" y="212" class="font muted">画面留白，质感高级。</text>
+      <text x="20" y="282" class="font muted">每次用户只需要补充本次图片。</text>
+    </g>
+
+    <g transform="translate(390 116)">
+      <rect width="346" height="116" rx="18" fill="url(#dark)"/>
+      <text x="24" y="36" class="font muted white">你</text>
+      <text x="24" y="70" class="font white" font-size="18" font-weight="800">这张产品图也按同一套规则处理</text>
+      <rect x="250" y="24" width="72" height="32" rx="16" fill="#20342D" stroke="#3F5D52"/>
+      <text x="270" y="46" class="font white" font-size="13" font-weight="800">生成中</text>
+
+      <g transform="translate(0 154)">
+        <rect width="346" height="226" rx="18" fill="#FFFFFF" stroke="#D8E2DA"/>
+        <text x="24" y="40" class="font label">生成完成，共 4 张</text>
+        <g transform="translate(24 66)">
+          <rect width="136" height="136" rx="16" fill="url(#img1)"/>
+          <rect x="154" width="136" height="136" rx="16" fill="url(#img2)"/>
+          <rect x="10" y="10" width="52" height="26" rx="13" fill="#F8FFFC"/>
+          <text x="24" y="29" class="font pill">选中</text>
+          <rect x="164" y="10" width="52" height="26" rx="13" fill="#F8FFFC" opacity="0.88"/>
+          <text x="178" y="29" class="font muted">备选</text>
+        </g>
+      </g>
+    </g>
+
+    <g transform="translate(780 116)">
+      <rect width="286" height="380" rx="18" fill="#F7FAF8" stroke="#D8E2DA"/>
+      <text x="24" y="42" class="font label">后续图生图</text>
+      <text x="24" y="70" class="font muted">基于：选中图 + 上传参考图 + 文本补充</text>
+      <g transform="translate(24 106)">
+        <rect width="238" height="58" rx="14" fill="#FFFFFF" stroke="#D8E2DA"/>
+        <circle cx="30" cy="29" r="16" fill="url(#img1)"/>
+        <text x="58" y="35" class="font muted">当前选中基准图</text>
+        <rect y="78" width="238" height="58" rx="14" fill="#FFFFFF" stroke="#D8E2DA"/>
+        <circle cx="30" cy="107" r="16" fill="url(#img3)"/>
+        <text x="58" y="113" class="font muted">本次上传参考图</text>
+        <rect y="156" width="238" height="74" rx="14" fill="#FFFFFF" stroke="#D8E2DA"/>
+        <text x="22" y="188" class="font muted">补充：背景更明亮，</text>
+        <text x="22" y="214" class="font muted">保持产品角度不变。</text>
+        <rect y="258" width="238" height="52" rx="15" fill="url(#dark)"/>
+        <text x="84" y="291" class="font white" font-size="17" font-weight="800">继续生成</text>
+      </g>
+    </g>
+  </g>
+</svg>

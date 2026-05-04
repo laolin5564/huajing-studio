@@ -1,0 +1,109 @@
+<svg width="1280" height="720" viewBox="0 0 1280 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1280" y2="720" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7FAF8"/>
+      <stop offset="0.55" stop-color="#EEF6F2"/>
+      <stop offset="1" stop-color="#F7F1EA"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#092B22"/>
+      <stop offset="1" stop-color="#101411"/>
+    </linearGradient>
+    <linearGradient id="mint" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#CBEADF"/>
+      <stop offset="1" stop-color="#F2E8D9"/>
+    </linearGradient>
+    <linearGradient id="imageA" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="0.5" stop-color="#E8EEF2"/>
+      <stop offset="1" stop-color="#0F2D43"/>
+    </linearGradient>
+    <linearGradient id="imageB" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FDFBF6"/>
+      <stop offset="0.48" stop-color="#DFECE6"/>
+      <stop offset="1" stop-color="#9DB9AC"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#143327" flood-opacity="0.16"/>
+    </filter>
+    <pattern id="grid" width="44" height="44" patternUnits="userSpaceOnUse">
+      <path d="M 44 0 L 0 0 0 44" stroke="#DCE8E1" stroke-width="1" opacity="0.45"/>
+    </pattern>
+    <style>
+      .font { font-family: Inter, "PingFang SC", "Microsoft YaHei", Arial, sans-serif; }
+      .title { font-weight: 800; font-size: 58px; letter-spacing: 0; fill: #111713; }
+      .subtitle { font-weight: 500; font-size: 22px; fill: #607169; }
+      .label { font-weight: 700; font-size: 18px; fill: #111713; }
+      .muted { font-weight: 500; font-size: 14px; fill: #6C7A72; }
+      .small { font-weight: 700; font-size: 13px; fill: #6C7A72; }
+      .white { fill: #F8FFFC; }
+      .button { font-weight: 800; font-size: 18px; fill: #F8FFFC; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="720" fill="url(#bg)"/>
+  <rect width="1280" height="720" fill="url(#grid)" opacity="0.7"/>
+
+  <circle cx="1070" cy="128" r="180" fill="#DCEDE5" opacity="0.45"/>
+  <circle cx="220" cy="610" r="220" fill="#F4E5D4" opacity="0.36"/>
+
+  <g class="font">
+    <text x="90" y="110" class="title">画境工坊</text>
+    <text x="92" y="152" class="subtitle">团队级 AI 图片生成工作台 · 自托管 · 会话式 · 可运营</text>
+
+    <g transform="translate(92 190)">
+      <rect width="145" height="44" rx="22" fill="#0D1B16"/>
+      <text x="22" y="28" class="button">文生图</text>
+      <rect x="160" width="145" height="44" rx="22" fill="#FFFFFF" stroke="#D8E2DA"/>
+      <text x="183" y="28" class="label">图生图</text>
+      <rect x="320" width="185" height="44" rx="22" fill="#FFFFFF" stroke="#D8E2DA"/>
+      <text x="344" y="28" class="label">会话固定提示词</text>
+    </g>
+  </g>
+
+  <g transform="translate(88 284)" filter="url(#shadow)">
+    <rect width="1104" height="344" rx="28" fill="#FFFFFF" stroke="#D7E2DA"/>
+
+    <g transform="translate(32 30)">
+      <rect width="260" height="284" rx="18" fill="#F7FAF8" stroke="#D8E2DA"/>
+      <text x="24" y="42" class="font label">参数</text>
+      <text x="24" y="67" class="font muted">模板、比例、参考图和数量</text>
+      <rect x="24" y="94" width="212" height="42" rx="12" fill="#FFFFFF" stroke="#D8E2DA"/>
+      <text x="42" y="121" class="font small">小红书封面 3:4</text>
+      <rect x="24" y="154" width="212" height="80" rx="12" fill="#FFFFFF" stroke="#D8E2DA"/>
+      <text x="42" y="188" class="font muted">高级商业质感，</text>
+      <text x="42" y="213" class="font muted">干净构图，留白充足</text>
+      <rect x="24" y="250" width="212" height="44" rx="13" fill="url(#ink)"/>
+      <text x="98" y="278" class="font button">生成</text>
+    </g>
+
+    <g transform="translate(324 30)">
+      <rect width="500" height="284" rx="18" fill="#FFFFFF" stroke="#D8E2DA"/>
+      <text x="24" y="42" class="font label">当前会话</text>
+      <text x="24" y="67" class="font muted">生成结果和后续处理都留在同一个上下文里</text>
+      <rect x="48" y="92" width="350" height="72" rx="14" fill="#0D1B16"/>
+      <text x="68" y="123" class="font small white">你</text>
+      <text x="68" y="148" class="font white" font-size="16" font-weight="700">一张现代极简活动海报，清爽构图</text>
+      <g transform="translate(48 184)">
+        <rect width="124" height="80" rx="12" fill="url(#imageA)"/>
+        <rect x="138" width="124" height="80" rx="12" fill="url(#imageB)"/>
+        <rect x="276" width="124" height="80" rx="12" fill="url(#mint)"/>
+        <circle cx="24" cy="24" r="14" fill="#FFFFFF" opacity="0.78"/>
+        <circle cx="162" cy="24" r="14" fill="#FFFFFF" opacity="0.78"/>
+        <circle cx="300" cy="24" r="14" fill="#FFFFFF" opacity="0.78"/>
+      </g>
+    </g>
+
+    <g transform="translate(852 30)">
+      <rect width="220" height="284" rx="18" fill="#F7FAF8" stroke="#D8E2DA"/>
+      <text x="22" y="42" class="font label">运营后台</text>
+      <text x="22" y="67" class="font muted">额度、模型、模板、更新</text>
+      <rect x="22" y="96" width="176" height="44" rx="12" fill="#FFFFFF" stroke="#D8E2DA"/>
+      <text x="40" y="124" class="font small">并发请求数 100</text>
+      <rect x="22" y="154" width="176" height="44" rx="12" fill="#FFFFFF" stroke="#D8E2DA"/>
+      <text x="40" y="182" class="font small">模型健康检测</text>
+      <rect x="22" y="212" width="176" height="44" rx="12" fill="#FFFFFF" stroke="#D8E2DA"/>
+      <text x="40" y="240" class="font small">Web 一键更新</text>
+    </g>
+  </g>
+</svg>
