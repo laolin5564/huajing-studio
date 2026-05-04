@@ -2,8 +2,12 @@
 
 import { useEffect, useState } from "react";
 import {
+  Activity,
+  AlertTriangle,
   BarChart3,
+  Clock,
   DollarSign,
+  Gauge,
   KeyRound,
   RefreshCw,
   Save,
@@ -516,6 +520,21 @@ export function AdminClient() {
     today: { totalTasks: 0, succeededTasks: 0, failedTasks: 0, totalImages: 0, estimatedCost: 0 },
     week: { totalTasks: 0, succeededTasks: 0, failedTasks: 0, totalImages: 0, estimatedCost: 0 },
     popularTemplates: [],
+    health: {
+      provider: imageProvider,
+      baseUrl: baseUrl || "未配置",
+      imageModel: imageModel || "未配置",
+      imageConcurrency,
+      timeoutStreak: 0,
+      autoDegradedAt: null,
+      averageDurationSeconds: null,
+      failureRate: 0,
+      availabilityRate: 100,
+      weekTimeoutTasks: 0,
+    },
+    topErrors: [],
+    userSuccessRanking: [],
+    groupUsage: [],
   };
 
   return (
@@ -540,6 +559,47 @@ export function AdminClient() {
             <StatCard label="本周生成次数" value={displayStats.week.totalTasks} icon={<TrendingUp size={18} />} />
             <StatCard label="成功 / 失败" value={`${displayStats.week.succeededTasks} / ${displayStats.week.failedTasks}`} icon={<BarChart3 size={18} />} />
             <StatCard label="本周预估成本" value={`$${displayStats.week.estimatedCost.toFixed(2)}`} icon={<DollarSign size={18} />} />
+            <StatCard label="模型可用率" value={`${displayStats.health.availabilityRate}%`} icon={<Activity size={18} />} />
+            <StatCard label="平均耗时" value={displayStats.health.averageDurationSeconds === null ? "暂无" : `${displayStats.health.averageDurationSeconds}s`} icon={<Clock size={18} />} />
+            <StatCard label="本周超时任务" value={displayStats.health.weekTimeoutTasks} icon={<AlertTriangle size={18} />} />
+            <StatCard label="当前并发" value={displayStats.health.imageConcurrency} icon={<Gauge size={18} />} />
+          </section>
+
+          <section className="panel" style={{ marginTop: "1rem" }}>
+            <div className="panel-header">
+              <div>
+                <h2>模型健康</h2>
+              </div>
+              <span className={clsx("badge", displayStats.health.timeoutStreak > 0 ? "warning" : "success")}>
+                连续超时 {displayStats.health.timeoutStreak}
+              </span>
+            </div>
+            <div className="panel-body popular-list">
+              <div className="popular-row">
+                <strong>接口模式</strong>
+                <span className="badge">{displayStats.health.provider === "openai_oauth" ? "内置 OAuth" : "API Key"}</span>
+              </div>
+              <div className="popular-row">
+                <strong>Base URL</strong>
+                <span>{displayStats.health.baseUrl}</span>
+              </div>
+              <div className="popular-row">
+                <strong>模型</strong>
+                <span>{displayStats.health.imageModel}</span>
+              </div>
+              <div className="popular-row">
+                <strong>失败率</strong>
+                <span className={clsx("badge", displayStats.health.failureRate > 20 ? "danger" : displayStats.health.failureRate > 0 ? "warning" : "success")}>
+                  {displayStats.health.failureRate}%
+                </span>
+              </div>
+              {displayStats.health.autoDegradedAt ? (
+                <div className="popular-row">
+                  <strong>最近自动降并发</strong>
+                  <span>{new Date(displayStats.health.autoDegradedAt).toLocaleString()}</span>
+                </div>
+              ) : null}
+            </div>
           </section>
 
           <section className="panel" style={{ marginTop: "1rem" }}>
@@ -1184,6 +1244,57 @@ export function AdminClient() {
                   <span>暂无模板使用数据</span>
                 </div>
               )}
+            </div>
+          </section>
+
+          <section className="panel" style={{ marginTop: "1rem" }}>
+            <div className="panel-header">
+              <div>
+                <h2>高频错误</h2>
+              </div>
+            </div>
+            <div className="panel-body popular-list">
+              {displayStats.topErrors.length > 0 ? (
+                displayStats.topErrors.map((item) => (
+                  <div className="popular-row" key={item.message}>
+                    <strong>{item.message}</strong>
+                    <span className="badge danger">{item.count} 次</span>
+                  </div>
+                ))
+              ) : (
+                <div className="empty-state">
+                  <span>暂无失败数据</span>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="panel" style={{ marginTop: "1rem" }}>
+            <div className="panel-header">
+              <div>
+                <h2>账号与分组消耗</h2>
+              </div>
+              <span className="badge">本周 / 本月</span>
+            </div>
+            <div className="panel-body popular-list">
+              {displayStats.userSuccessRanking.length > 0 ? (
+                displayStats.userSuccessRanking.map((user) => (
+                  <div className="popular-row" key={user.userId ?? "anonymous"}>
+                    <strong>{user.name}</strong>
+                    <span className="badge">{user.succeededTasks}/{user.totalTasks} · {user.successRate}%</span>
+                  </div>
+                ))
+              ) : (
+                <div className="empty-state">
+                  <span>暂无账号生成数据</span>
+                </div>
+              )}
+              {displayStats.groupUsage.map((group) => (
+                <div className="popular-row" key={group.groupId ?? "ungrouped"}>
+                  <strong>{group.name}</strong>
+                  <span className="badge">{group.used}/{group.quota ?? "不限"}</span>
+                </div>
+              ))}
             </div>
           </section>
         </>

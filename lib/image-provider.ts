@@ -60,11 +60,12 @@ export async function callImageModel(
   signal?: AbortSignal,
 ): Promise<MaterializedImage[]> {
   const settings = await resolveImageProviderSettings(signal);
+  const taskConcurrency = normalizeTaskImageConcurrency(task.requested_concurrency, settings.imageConcurrency);
 
   const images: MaterializedImage[] = [];
   while (images.length < task.quantity) {
     const remaining = task.quantity - images.length;
-    const batchSize = Math.min(remaining, settings.imageConcurrency);
+    const batchSize = Math.min(remaining, taskConcurrency);
     const batch = await Promise.all(
       Array.from({ length: batchSize }, async () => {
         const result =
@@ -84,6 +85,13 @@ export async function callImageModel(
     }
   }
   return images;
+}
+
+function normalizeTaskImageConcurrency(value: number | null, fallback: number): number {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+  return Math.min(Math.max(1, Math.floor(value)), Math.max(1, fallback));
 }
 
 async function resolveImageProviderSettings(signal?: AbortSignal): Promise<ImageRequestSettings> {
@@ -334,7 +342,7 @@ function buildPrompt(task: GenerationTaskRow): string {
   if (task.mode !== "text_to_image") {
     parts.push(`参考强度：${task.reference_strength.toFixed(2)}；风格强度：${task.style_strength.toFixed(2)}。`);
     if (task.reference_image_id) {
-      parts.push("图片参考关系：第一张图片是需要修改的当前生成结果，后续图片是额外参考图；请以第一张图片为主，结合额外参考图和文字提示进行二次修改。");
+      parts.push("图片参考关系：第一张图片是需要处理的主图，后续图片是额外参考图；请以主图为基础，结合参考图和文字提示进行二次生成。");
     }
   }
 

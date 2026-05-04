@@ -17,7 +17,7 @@ interface TemplateListResponse {
   templates: PublicTemplate[];
 }
 
-const allModes = ["", "text_to_image", "image_to_image", "edit_image"] as const;
+const allModes = ["", "text_to_image", "image_to_image"] as const;
 
 export function HistoryClient() {
   const [keyword, setKeyword] = useState("");
@@ -84,7 +84,7 @@ export function HistoryClient() {
       await apiJson("/api/generation-tasks", {
         method: "POST",
         body: JSON.stringify({
-          mode: image.mode,
+          mode: image.mode === "edit_image" ? "image_to_image" : image.mode,
           prompt: image.prompt,
           negativePrompt: null,
           size: sizeFromDimensions(image.width, image.height),
@@ -212,7 +212,7 @@ export function HistoryClient() {
                   <button className="icon-button" type="button" onClick={() => regenerate(image)} title="再生成">
                     <RefreshCw size={15} aria-hidden="true" />
                   </button>
-                  <Link className="icon-button" href={`/?mode=edit_image&sourceImageId=${image.id}`} title="用这张图改图">
+                  <Link className="icon-button" href={`/?mode=image_to_image&sourceImageId=${image.id}`} title="用这张图生成">
                     <Pencil size={15} aria-hidden="true" />
                   </Link>
                   <button className="icon-button" type="button" onClick={() => saveTemplate(image)} title="保存为模板">

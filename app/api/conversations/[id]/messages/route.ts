@@ -9,6 +9,7 @@ import {
   toPublicTask,
 } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { normalizeConversationFixedPrompt } from "@/lib/conversation-prompt";
 import { handleRouteError, jsonError } from "@/lib/http";
 import {
   assertConversationAccess,
@@ -35,13 +36,25 @@ export async function POST(
     assertConversationAccess(user, conversation);
 
     const input = continueConversationSchema.parse(await request.json());
-    const latestImage = getLatestConversationImage(id);
-    const sourceImage = input.sourceImageId ? getGeneratedImage(input.sourceImageId) : latestImage;
-
-    if (!sourceImage || !getImageFilePathById(sourceImage.id)) {
-      return jsonError("当前会话还没有可继续改图的图片", 400);
+    const fixedPrompt = conversation.fixed_prompt_enabled === 1
+      ? normalizeConversationFixedPrompt(conversation.fixed_prompt)
+      : null;
+    if (!input.prompt && !fixedPrompt) {
+      return jsonError("请输入本次描述，或先开启会话固定提示词", 400);
     }
-    assertGeneratedImageAccess(user, sourceImage);
+
+    const latestImage = getLatestConversationImage(id);
+    const sourceImageId = input.sourceImageId ?? latestImage?.id ?? null;
+
+    if (!sourceImageId || !getImageFilePathById(sourceImageId)) {
+      return jsonError("当前会话还没有可继续图生图的图片", 400);
+    }
+    const generatedSourceImage = getGeneratedImage(sourceImageId);
+    if (generatedSourceImage) {
+      assertGeneratedImageAccess(user, generatedSourceImage);
+    } else {
+      assertImageReferenceAccess(user, sourceImageId);
+    }
     const allRefIds: string[] = [];
     if (input.referenceImageId) {
       allRefIds.push(input.referenceImageId);
@@ -49,7 +62,8 @@ export async function POST(
     if (input.referenceImageIds) {
       allRefIds.push(...input.referenceImageIds);
     }
-    for (const refId of allRefIds) {
+    const uniqueReferenceIds = Array.from(new Set(allRefIds.filter((refId) => refId !== sourceImageId)));
+    for (const refId of uniqueReferenceIds) {
       assertImageReferenceAccess(user, refId);
       if (!getImageFilePathById(refId)) {
         return jsonError("参考图不存在或已无法访问", 400);
@@ -60,17 +74,18 @@ export async function POST(
     const task = createGenerationTask({
       userId: user.id,
       conversationId: id,
-      mode: "edit_image",
+      mode: "image_to_image",
       prompt: input.prompt,
       negativePrompt: input.negativePrompt,
       size: input.size,
       quantity: input.quantity,
-      templateId: sourceImage.template_id,
-      sourceImageId: sourceImage.id,
-      referenceImageId: input.referenceImageId,
-      referenceImageIds: input.referenceImageIds ?? [],
+      templateId: generatedSourceImage?.template_id ?? latestImage?.template_id ?? null,
+      sourceImageId,
+      referenceImageId: uniqueReferenceIds[0] ?? null,
+      referenceImageIds: uniqueReferenceIds,
       referenceStrength: input.referenceStrength,
       styleStrength: input.styleStrength,
+      applyFixedPrompt: true,
     });
 
     return NextResponse.json(

@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { appConfig, PUBLIC_FILE_PREFIX } from "./config";
+import { composeConversationPrompt, normalizeConversationFixedPrompt } from "./conversation-prompt";
 import { normalizeImageConcurrency } from "./concurrency";
 import { normalizeImageSizeOption } from "./image-options";
 import { normalizeProxyUrl, redactProxyUrl } from "./proxy";
@@ -29,6 +30,7 @@ import type {
   PublicUserGroup,
   SessionRow,
   SourceImageRow,
+  TaskProgressStage,
   TaskStatus,
   TemplateCategory,
   TemplateRow,
@@ -47,12 +49,14 @@ export interface CreateTaskInput {
   negativePrompt: string | null;
   size: string;
   quantity: number;
+  requestedConcurrency?: number | null;
   templateId: string | null;
   sourceImageId: string | null;
   referenceImageId?: string | null;
   referenceImageIds?: string[];
   referenceStrength: number;
   styleStrength: number;
+  applyFixedPrompt?: boolean;
 }
 
 export interface CreateTemplateInput {
@@ -119,6 +123,8 @@ type AppSettingKey =
   | "openai_oauth_proxy_url"
   | "image_model"
   | "image_concurrency"
+  | "image_timeout_streak"
+  | "image_auto_degraded_at"
   | "site_title"
   | "site_subtitle"
   | "registration_enabled"
@@ -266,10 +272,14 @@ function initializeSchema(database: DatabaseSync): void {
       conversation_id TEXT,
       mode TEXT NOT NULL CHECK (mode IN ('text_to_image', 'image_to_image', 'edit_image')),
       status TEXT NOT NULL CHECK (status IN ('queued', 'processing', 'succeeded', 'failed')),
+      progress_stage TEXT NOT NULL DEFAULT 'queued',
       prompt TEXT NOT NULL,
+      fixed_prompt TEXT,
+      prompt_suffix TEXT,
       negative_prompt TEXT,
       size TEXT NOT NULL,
       quantity INTEGER NOT NULL CHECK (quantity IN (1, 2, 4)),
+      requested_concurrency INTEGER,
       template_id TEXT,
       source_image_id TEXT,
       reference_image_id TEXT,
@@ -358,6 +368,8 @@ function initializeSchema(database: DatabaseSync): void {
       id TEXT PRIMARY KEY,
       user_id TEXT,
       title TEXT NOT NULL,
+      fixed_prompt_enabled INTEGER NOT NULL DEFAULT 0,
+      fixed_prompt TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -453,10 +465,16 @@ function initializeSchema(database: DatabaseSync): void {
   `);
   ensureColumn(database, "generation_tasks", "user_id", "TEXT");
   ensureColumn(database, "generation_tasks", "conversation_id", "TEXT");
+  ensureColumn(database, "generation_tasks", "progress_stage", "TEXT NOT NULL DEFAULT 'queued'");
+  ensureColumn(database, "generation_tasks", "fixed_prompt", "TEXT");
+  ensureColumn(database, "generation_tasks", "prompt_suffix", "TEXT");
+  ensureColumn(database, "generation_tasks", "requested_concurrency", "INTEGER");
   ensureColumn(database, "generation_tasks", "reference_image_id", "TEXT");
   ensureColumn(database, "generation_tasks", "reference_image_ids", "TEXT");
   ensureColumn(database, "source_images", "user_id", "TEXT");
   ensureColumn(database, "conversations", "user_id", "TEXT");
+  ensureColumn(database, "conversations", "fixed_prompt_enabled", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(database, "conversations", "fixed_prompt", "TEXT");
   ensureColumn(database, "users", "monthly_quota", "INTEGER");
   database.exec(`
     CREATE INDEX IF NOT EXISTS idx_generation_tasks_user
@@ -928,6 +946,35 @@ export function getImageConcurrencySetting(): number {
   return getRuntimeImageSettings().imageConcurrency;
 }
 
+export function getImageTimeoutStreak(): number {
+  const value = Number(getAppSetting("image_timeout_streak") ?? 0);
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+
+export function resetImageTimeoutStreak(): void {
+  if (getImageTimeoutStreak() !== 0) {
+    setAppSetting("image_timeout_streak", "0");
+  }
+}
+
+export function recordImageTimeoutFailure(): {
+  timeoutStreak: number;
+  degraded: boolean;
+  previousConcurrency: number;
+} {
+  const timeoutStreak = getImageTimeoutStreak() + 1;
+  const previousConcurrency = getImageConcurrencySetting();
+  setAppSetting("image_timeout_streak", String(timeoutStreak));
+
+  if (timeoutStreak >= 2 && previousConcurrency > 1) {
+    setAppSetting("image_concurrency", "1");
+    setAppSetting("image_auto_degraded_at", nowIso());
+    return { timeoutStreak, degraded: true, previousConcurrency };
+  }
+
+  return { timeoutStreak, degraded: false, previousConcurrency };
+}
+
 export function getPublicSiteSettings(): {
   siteTitle: string;
   siteSubtitle: string;
@@ -1019,7 +1066,13 @@ export function createConversation(title: string, userId: string | null): Conver
   const id = createId("conv");
   const createdAt = nowIso();
   getDb()
-    .prepare("INSERT INTO conversations (id, user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+    .prepare(
+      `
+      INSERT INTO conversations (
+        id, user_id, title, fixed_prompt_enabled, fixed_prompt, created_at, updated_at
+      ) VALUES (?, ?, ?, 0, NULL, ?, ?)
+    `,
+    )
     .run(id, userId, title, createdAt, createdAt);
 
   const conversation = getConversation(id);
@@ -1033,6 +1086,34 @@ export function getConversation(id: string): ConversationRow | null {
   return castRow<ConversationRow>(
     getDb().prepare("SELECT * FROM conversations WHERE id = ? LIMIT 1").get(id),
   );
+}
+
+export function updateConversationFixedPrompt(
+  id: string,
+  input: { enabled: boolean; fixedPrompt: string | null },
+): ConversationRow {
+  const existing = getConversation(id);
+  if (!existing) {
+    throw new Error("会话不存在");
+  }
+
+  const fixedPrompt = normalizeConversationFixedPrompt(input.fixedPrompt);
+  const enabled = input.enabled && Boolean(fixedPrompt);
+  getDb()
+    .prepare(
+      `
+      UPDATE conversations
+      SET fixed_prompt_enabled = ?, fixed_prompt = ?, updated_at = ?
+      WHERE id = ?
+    `,
+    )
+    .run(enabled ? 1 : 0, fixedPrompt, nowIso(), id);
+
+  const updated = getConversation(id);
+  if (!updated) {
+    throw new Error("会话固定提示词更新失败");
+  }
+  return updated;
 }
 
 export function listConversations(input: { userId: string; isAdmin: boolean; limit?: number }): ConversationRow[] {
@@ -1165,15 +1246,24 @@ export function createGenerationTask(input: CreateTaskInput): GenerationTaskRow 
     const existingConversation = input.conversationId ? getConversation(input.conversationId) : null;
     const conversation = existingConversation ?? createConversation(titleFromPrompt(input.prompt), input.userId);
     const conversationId = conversation.id;
+    const activeFixedPrompt =
+      input.applyFixedPrompt === false || conversation.fixed_prompt_enabled !== 1
+        ? null
+        : conversation.fixed_prompt;
+    const composedPrompt = composeConversationPrompt(input.prompt, activeFixedPrompt);
+    if (!composedPrompt.finalPrompt) {
+      throw new Error("prompt 不能为空");
+    }
 
     database
       .prepare(
         `
         INSERT INTO generation_tasks (
-          id, user_id, conversation_id, mode, status, prompt, negative_prompt, size, quantity, template_id,
+          id, user_id, conversation_id, mode, status, progress_stage, prompt, fixed_prompt, prompt_suffix,
+          negative_prompt, size, quantity, requested_concurrency, template_id,
           source_image_id, reference_image_id, reference_image_ids, reference_strength, style_strength, cost_estimate,
           error_message, created_at, started_at, completed_at
-        ) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL)
+        ) VALUES (?, ?, ?, ?, 'queued', 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL)
       `,
       )
       .run(
@@ -1181,10 +1271,13 @@ export function createGenerationTask(input: CreateTaskInput): GenerationTaskRow 
         input.userId,
         conversationId,
         input.mode,
-        input.prompt,
+        composedPrompt.finalPrompt,
+        composedPrompt.fixedPrompt,
+        composedPrompt.promptSuffix,
         input.negativePrompt,
         input.size,
         input.quantity,
+        input.requestedConcurrency ?? null,
         input.templateId,
         input.sourceImageId,
         input.referenceImageId ?? null,
@@ -1198,7 +1291,7 @@ export function createGenerationTask(input: CreateTaskInput): GenerationTaskRow 
     createConversationMessage({
       conversationId,
       role: "user",
-      content: input.prompt,
+      content: composedPrompt.messageContent,
       taskId: id,
       imageId: input.sourceImageId,
     });
@@ -1275,7 +1368,7 @@ export function claimNextQueuedTask(): GenerationTaskRow | null {
 
   const result = database
     .prepare(
-      "UPDATE generation_tasks SET status = 'processing', started_at = ?, error_message = NULL WHERE id = ? AND status = 'queued'",
+      "UPDATE generation_tasks SET status = 'processing', progress_stage = 'requesting', started_at = ?, error_message = NULL WHERE id = ? AND status = 'queued'",
     )
     .run(nowIso(), queued.id);
 
@@ -1284,6 +1377,12 @@ export function claimNextQueuedTask(): GenerationTaskRow | null {
   }
 
   return getGenerationTask(queued.id);
+}
+
+export function updateTaskProgressStage(taskId: string, stage: TaskProgressStage): void {
+  getDb()
+    .prepare("UPDATE generation_tasks SET progress_stage = ? WHERE id = ? AND status = 'processing'")
+    .run(stage, taskId);
 }
 
 export function markTaskSucceeded(taskId: string, imageCount: number): void {
@@ -1295,7 +1394,7 @@ export function markTaskSucceeded(taskId: string, imageCount: number): void {
 
   const result = getDb()
     .prepare(
-      "UPDATE generation_tasks SET status = 'succeeded', completed_at = ?, error_message = NULL WHERE id = ? AND status = 'processing'",
+      "UPDATE generation_tasks SET status = 'succeeded', progress_stage = 'completed', completed_at = ?, error_message = NULL WHERE id = ? AND status = 'processing'",
     )
     .run(completedAt, taskId);
 
@@ -1328,7 +1427,7 @@ export function markTaskFailed(taskId: string, message: string): void {
 
   const result = getDb()
     .prepare(
-      "UPDATE generation_tasks SET status = 'failed', completed_at = ?, error_message = ? WHERE id = ? AND status = 'processing'",
+      "UPDATE generation_tasks SET status = 'failed', progress_stage = 'failed', completed_at = ?, error_message = ? WHERE id = ? AND status = 'processing'",
     )
     .run(nowIso(), message.slice(0, 1000), taskId);
 
@@ -1365,7 +1464,7 @@ export function cancelGenerationTask(taskId: string): GenerationTaskRow | null {
     .prepare(
       `
       UPDATE generation_tasks
-      SET status = 'failed', completed_at = ?, error_message = ?
+      SET status = 'failed', progress_stage = 'canceled', completed_at = ?, error_message = ?
       WHERE id = ? AND status IN ('queued', 'processing')
     `,
     )
@@ -1522,8 +1621,12 @@ export function listImages(input: ListImagesInput): Array<GeneratedImageRow & { 
   const params: Array<string | number> = [];
 
   if (input.mode) {
-    where.push("gi.mode = ?");
-    params.push(input.mode);
+    if (input.mode === "image_to_image") {
+      where.push("gi.mode IN ('image_to_image', 'edit_image')");
+    } else {
+      where.push("gi.mode = ?");
+      params.push(input.mode);
+    }
   }
 
   if (input.templateId) {
@@ -1678,6 +1781,8 @@ export function getAdminStats(): AdminStats {
   const database = getDb();
   const todayStart = startOfLocalDay();
   const weekStart = startOfLocalWeek();
+  const monthStart = monthStartIso();
+  const runtimeSettings = getRuntimeImageSettings();
   type StatsRangeRow = {
     totalTasks: number;
     succeededTasks: number | null;
@@ -1713,6 +1818,37 @@ export function getAdminStats(): AdminStats {
 
   const today = readRange(todayStart) ?? emptyRange;
   const week = readRange(weekStart) ?? emptyRange;
+  const weekTotal = week.totalTasks || 0;
+  const weekFailed = week.failedTasks ?? 0;
+  const failureRate = weekTotal > 0 ? Number(((weekFailed / weekTotal) * 100).toFixed(1)) : 0;
+  const averageDuration = castRow<{ averageSeconds: number | null }>(
+    database
+      .prepare(
+        `
+        SELECT AVG((julianday(completed_at) - julianday(started_at)) * 86400) AS averageSeconds
+        FROM generation_tasks
+        WHERE created_at >= ? AND started_at IS NOT NULL AND completed_at IS NOT NULL
+      `,
+      )
+      .get(weekStart),
+  );
+  const timeoutRow = castRow<{ count: number | null }>(
+    database
+      .prepare(
+        `
+        SELECT COUNT(*) AS count
+        FROM generation_tasks
+        WHERE created_at >= ?
+          AND status = 'failed'
+          AND (
+            error_message LIKE '%超时%'
+            OR error_message LIKE '%504%'
+            OR error_message LIKE '%524%'
+          )
+      `,
+      )
+      .get(weekStart),
+  );
   const popularTemplates = castRows<{ templateId: string; name: string; count: number }>(
     database
       .prepare(
@@ -1728,6 +1864,82 @@ export function getAdminStats(): AdminStats {
       )
       .all(weekStart),
   );
+  const topErrors = castRows<{ message: string; count: number }>(
+    database
+      .prepare(
+        `
+      SELECT error_message AS message, COUNT(*) AS count
+      FROM generation_tasks
+      WHERE status = 'failed' AND error_message IS NOT NULL AND created_at >= ?
+      GROUP BY error_message
+      ORDER BY count DESC
+      LIMIT 8
+    `,
+      )
+      .all(weekStart),
+  ).map((row) => ({
+    message: row.message.length > 160 ? `${row.message.slice(0, 160)}...` : row.message,
+    count: row.count,
+  }));
+  const userSuccessRanking = castRows<{
+    userId: string | null;
+    name: string | null;
+    totalTasks: number;
+    succeededTasks: number | null;
+  }>(
+    database
+      .prepare(
+        `
+      SELECT
+        gt.user_id AS userId,
+        COALESCE(u.name, '未登录用户') AS name,
+        COUNT(*) AS totalTasks,
+        SUM(CASE WHEN gt.status = 'succeeded' THEN 1 ELSE 0 END) AS succeededTasks
+      FROM generation_tasks gt
+      LEFT JOIN users u ON u.id = gt.user_id
+      WHERE gt.created_at >= ?
+      GROUP BY gt.user_id, u.name
+      ORDER BY totalTasks DESC
+      LIMIT 8
+    `,
+      )
+      .all(weekStart),
+  ).map((row) => ({
+    userId: row.userId,
+    name: row.name ?? "未登录用户",
+    totalTasks: row.totalTasks,
+    succeededTasks: row.succeededTasks ?? 0,
+    successRate: row.totalTasks > 0 ? Number((((row.succeededTasks ?? 0) / row.totalTasks) * 100).toFixed(1)) : 0,
+  }));
+  const groupUsage = castRows<{
+    groupId: string | null;
+    name: string;
+    used: number | null;
+    quota: number | null;
+  }>(
+    database
+      .prepare(
+        `
+      SELECT
+        ug.id AS groupId,
+        COALESCE(ug.name, '未分组') AS name,
+        COALESCE(SUM(CASE WHEN gt.status != 'failed' THEN gt.quantity ELSE 0 END), 0) AS used,
+        MAX(COALESCE(u.monthly_quota, ug.monthly_quota)) AS quota
+      FROM users u
+      LEFT JOIN user_groups ug ON ug.id = u.group_id
+      LEFT JOIN generation_tasks gt ON gt.user_id = u.id AND gt.created_at >= ?
+      GROUP BY ug.id, ug.name
+      ORDER BY used DESC
+      LIMIT 8
+    `,
+      )
+      .all(monthStart),
+  ).map((row) => ({
+    groupId: row.groupId,
+    name: row.name,
+    used: row.used ?? 0,
+    quota: row.quota,
+  }));
 
   return {
     today: {
@@ -1745,7 +1957,41 @@ export function getAdminStats(): AdminStats {
       estimatedCost: Number((week.estimatedCost ?? 0).toFixed(2)),
     },
     popularTemplates,
+    health: {
+      provider: runtimeSettings.imageProvider,
+      baseUrl: runtimeSettings.imageProvider === "openai_oauth" ? "OpenAI OAuth / Codex Responses" : runtimeSettings.sub2apiBaseUrl,
+      imageModel: runtimeSettings.imageModel,
+      imageConcurrency: runtimeSettings.imageConcurrency,
+      timeoutStreak: getImageTimeoutStreak(),
+      autoDegradedAt: getAppSetting("image_auto_degraded_at"),
+      averageDurationSeconds:
+        averageDuration?.averageSeconds === null || averageDuration?.averageSeconds === undefined
+          ? null
+          : Number(averageDuration.averageSeconds.toFixed(1)),
+      failureRate,
+      availabilityRate: weekTotal > 0 ? Number((100 - failureRate).toFixed(1)) : 100,
+      weekTimeoutTasks: timeoutRow?.count ?? 0,
+    },
+    topErrors,
+    userSuccessRanking,
+    groupUsage,
   };
+}
+
+function publicProgressStage(row: GenerationTaskRow): TaskProgressStage {
+  if (row.status === "queued") {
+    return "queued";
+  }
+  if (row.status === "succeeded") {
+    return "completed";
+  }
+  if (row.status === "failed") {
+    return row.error_message === taskStoppedMessage || row.progress_stage === "canceled" ? "canceled" : "failed";
+  }
+  if (row.progress_stage === "requesting" || row.progress_stage === "generating" || row.progress_stage === "saving") {
+    return row.progress_stage;
+  }
+  return "generating";
 }
 
 export function toPublicTask(row: GenerationTaskRow, images: GeneratedImageRow[] = []): PublicTask {
@@ -1755,10 +2001,14 @@ export function toPublicTask(row: GenerationTaskRow, images: GeneratedImageRow[]
     conversationId: row.conversation_id,
     mode: row.mode,
     status: row.status,
+    progressStage: publicProgressStage(row),
     prompt: row.prompt,
+    fixedPrompt: row.fixed_prompt,
+    promptSuffix: row.prompt_suffix,
     negativePrompt: row.negative_prompt,
     size: row.size,
     quantity: row.quantity,
+    requestedConcurrency: row.requested_concurrency,
     templateId: row.template_id,
     sourceImageId: row.source_image_id,
     referenceImageId: row.reference_image_id,
@@ -1817,6 +2067,8 @@ export function toPublicConversation(
     id: row.id,
     userId: row.user_id,
     title: row.title,
+    fixedPromptEnabled: row.fixed_prompt_enabled === 1,
+    fixedPrompt: row.fixed_prompt,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     latestTask: latestTask ? toPublicTask(latestTask, getTaskImages(latestTask.id)) : null,

@@ -69,8 +69,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const task = createGenerationTask({
       ...input,
+      mode: input.mode === "edit_image" ? "image_to_image" : input.mode,
       userId: user.id,
-      referenceImageIds: input.sourceImageIds ?? [],
+      referenceImageIds: (input.sourceImageIds ?? []).filter((imageId) => imageId !== input.sourceImageId),
     });
     return NextResponse.json(
       {

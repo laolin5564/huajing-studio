@@ -7,9 +7,13 @@ import {
   isTaskStopped,
   markTaskFailed,
   markTaskSucceeded,
+  recordImageTimeoutFailure,
+  resetImageTimeoutStreak,
+  updateTaskProgressStage,
 } from "./db";
 import { normalizeImageConcurrency } from "./concurrency";
 import { callImageModel } from "./image-provider";
+import { isModelTimeoutMessage } from "./model-error";
 import { parseSize, saveGeneratedImageFile } from "./storage";
 
 export async function processNextQueuedTask(): Promise<boolean> {
@@ -33,6 +37,7 @@ export async function processNextQueuedTask(): Promise<boolean> {
     const sourceImagePaths = allRefIds
       .map((id) => getImageFilePathById(id))
       .filter((filePath): filePath is string => Boolean(filePath));
+    updateTaskProgressStage(task.id, "generating");
     const generated = await runWithTaskCancellation(task.id, (signal) =>
       callImageModel(task, sourceImagePaths, signal),
     );
@@ -40,6 +45,7 @@ export async function processNextQueuedTask(): Promise<boolean> {
     if (!current || current.status !== "processing") {
       return true;
     }
+    updateTaskProgressStage(task.id, "saving");
     const { width, height } = parseSize(task.size);
 
     for (const item of generated) {
@@ -69,11 +75,20 @@ export async function processNextQueuedTask(): Promise<boolean> {
     }
 
     markTaskSucceeded(task.id, generated.length);
+    resetImageTimeoutStreak();
   } catch (error) {
     if (isTaskStopped(task.id)) {
       return true;
     }
-    const message = error instanceof Error ? error.message : "生成任务处理失败";
+    let message = error instanceof Error ? error.message : "生成任务处理失败";
+    if (isModelTimeoutMessage(message)) {
+      const timeout = recordImageTimeoutFailure();
+      if (timeout.degraded) {
+        message = `${message} 已连续 ${timeout.timeoutStreak} 次超时，系统已自动把并发请求数从 ${timeout.previousConcurrency} 降到 1。`;
+      }
+    } else {
+      resetImageTimeoutStreak();
+    }
     markTaskFailed(task.id, message);
   }
 

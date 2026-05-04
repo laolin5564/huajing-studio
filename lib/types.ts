@@ -4,6 +4,9 @@ export type GenerationMode = (typeof generationModes)[number];
 export const taskStatuses = ["queued", "processing", "succeeded", "failed"] as const;
 export type TaskStatus = (typeof taskStatuses)[number];
 
+export const taskProgressStages = ["queued", "requesting", "generating", "saving", "completed", "failed", "canceled"] as const;
+export type TaskProgressStage = (typeof taskProgressStages)[number];
+
 export const templateCategories = ["use_case", "platform", "company"] as const;
 export type TemplateCategory = (typeof templateCategories)[number];
 
@@ -26,10 +29,14 @@ export interface GenerationTaskRow {
   conversation_id: string | null;
   mode: GenerationMode;
   status: TaskStatus;
+  progress_stage: TaskProgressStage | null;
   prompt: string;
+  fixed_prompt: string | null;
+  prompt_suffix: string | null;
   negative_prompt: string | null;
   size: string;
   quantity: number;
+  requested_concurrency: number | null;
   template_id: string | null;
   source_image_id: string | null;
   reference_image_id: string | null;
@@ -85,6 +92,8 @@ export interface ConversationRow {
   id: string;
   user_id: string | null;
   title: string;
+  fixed_prompt_enabled: number;
+  fixed_prompt: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -200,10 +209,14 @@ export interface PublicTask {
   conversationId: string | null;
   mode: GenerationMode;
   status: TaskStatus;
+  progressStage: TaskProgressStage | null;
   prompt: string;
+  fixedPrompt: string | null;
+  promptSuffix: string | null;
   negativePrompt: string | null;
   size: string;
   quantity: number;
+  requestedConcurrency: number | null;
   templateId: string | null;
   sourceImageId: string | null;
   referenceImageId: string | null;
@@ -235,6 +248,8 @@ export interface PublicConversation {
   id: string;
   userId: string | null;
   title: string;
+  fixedPromptEnabled: boolean;
+  fixedPrompt: string | null;
   createdAt: string;
   updatedAt: string;
   latestTask: PublicTask | null;
@@ -310,6 +325,35 @@ export interface AdminStats {
     templateId: string;
     name: string;
     count: number;
+  }>;
+  health: {
+    provider: ImageProvider;
+    baseUrl: string;
+    imageModel: string;
+    imageConcurrency: number;
+    timeoutStreak: number;
+    autoDegradedAt: string | null;
+    averageDurationSeconds: number | null;
+    failureRate: number;
+    availabilityRate: number;
+    weekTimeoutTasks: number;
+  };
+  topErrors: Array<{
+    message: string;
+    count: number;
+  }>;
+  userSuccessRanking: Array<{
+    userId: string | null;
+    name: string;
+    totalTasks: number;
+    succeededTasks: number;
+    successRate: number;
+  }>;
+  groupUsage: Array<{
+    groupId: string | null;
+    name: string;
+    used: number;
+    quota: number | null;
   }>;
 }
 

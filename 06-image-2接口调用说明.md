@@ -54,9 +54,9 @@ curl -X POST "https://s2a.laolin.ai/v1/images/generations" \
   }'
 ```
 
-## 3. 图生图 / 改图接口
+## 3. 图生图接口
 
-图生图和改图建议统一走图片编辑接口。
+图生图和会话内继续修改统一走图片编辑接口。
 
 ### Endpoint
 
@@ -201,7 +201,7 @@ export async function editImage(params: {
 - 后端 worker 从任务表取任务。
 - worker 根据模式调用：
   - 文生图 → `/images/generations`
-  - 图生图 / 改图 → `/images/edits`
+  - 图生图 / 会话内继续生成 → `/images/edits`
 - worker 把返回图片保存到 NAS 本地目录。
 - 数据库只保存图片路径、prompt、参数和任务状态。
 

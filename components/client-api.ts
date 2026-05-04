@@ -49,7 +49,7 @@ export function formatDateTime(value: string): string {
 export const modeLabels = {
   text_to_image: "文生图",
   image_to_image: "图生图",
-  edit_image: "改图",
+  edit_image: "图生图",
 } as const;
 
 export const statusLabels = {
@@ -57,6 +57,16 @@ export const statusLabels = {
   processing: "生成中",
   succeeded: "完成",
   failed: "失败",
+} as const;
+
+export const progressStageLabels = {
+  queued: "排队中",
+  requesting: "请求中",
+  generating: "生成中",
+  saving: "保存中",
+  completed: "完成",
+  failed: "失败",
+  canceled: "已停止",
 } as const;
 
 export const categoryLabels = {
