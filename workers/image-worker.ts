@@ -1,5 +1,5 @@
 import { appConfig } from "../lib/config";
-import { getDb } from "../lib/db";
+import { getDb, getImageConcurrencySetting } from "../lib/db";
 import { processQueuedTasks } from "../lib/queue";
 
 function sleep(ms: number): Promise<void> {
@@ -14,9 +14,10 @@ async function main(): Promise<void> {
 
   while (true) {
     try {
-      const processed = await processQueuedTasks();
+      const concurrency = getImageConcurrencySetting();
+      const processed = await processQueuedTasks(concurrency);
       if (processed > 0) {
-        console.log(`processed ${processed} image task(s)`);
+        console.log(`processed ${processed} image task(s), concurrency=${concurrency}`);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "unknown worker error";

@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { appConfig, PUBLIC_FILE_PREFIX } from "./config";
+import { normalizeImageConcurrency } from "./concurrency";
 import { normalizeImageSizeOption } from "./image-options";
 import { normalizeProxyUrl, redactProxyUrl } from "./proxy";
 import type {
@@ -912,7 +913,6 @@ export function getRuntimeImageSettings(): {
   imageModel: string;
   imageConcurrency: number;
 } {
-  const concurrency = Number(getAppSetting("image_concurrency") ?? 2);
   const provider = getAppSetting("image_provider");
   return {
     imageProvider: provider === "openai_oauth" ? "openai_oauth" : "sub2api",
@@ -920,7 +920,7 @@ export function getRuntimeImageSettings(): {
     sub2apiBaseUrl: getAppSetting("sub2api_base_url") || appConfig.sub2apiBaseUrl,
     openaiOAuthProxyUrl: normalizeProxyUrl(getAppSetting("openai_oauth_proxy_url")),
     imageModel: getAppSetting("image_model") || appConfig.imageModel,
-    imageConcurrency: Number.isFinite(concurrency) ? Math.min(Math.max(Math.floor(concurrency), 1), 8) : 2,
+    imageConcurrency: normalizeImageConcurrency(getAppSetting("image_concurrency") ?? 2, 2),
   };
 }
 

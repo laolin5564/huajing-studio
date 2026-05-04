@@ -7,8 +7,6 @@ import { assertSupportedImageBytes, saveSourceImageFile } from "@/lib/storage";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const maxUploadBytes = 20 * 1024 * 1024;
-
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const user = requireUser(request);
@@ -17,10 +15,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (!(value instanceof File)) {
       return jsonError("请上传参考图", 400);
-    }
-
-    if (value.size > maxUploadBytes) {
-      return jsonError("图片不能超过 20MB", 400);
     }
 
     const bytes = new Uint8Array(await value.arrayBuffer());

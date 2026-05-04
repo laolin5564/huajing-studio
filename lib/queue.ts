@@ -8,6 +8,7 @@ import {
   markTaskFailed,
   markTaskSucceeded,
 } from "./db";
+import { normalizeImageConcurrency } from "./concurrency";
 import { callImageModel } from "./image-provider";
 import { parseSize, saveGeneratedImageFile } from "./storage";
 
@@ -80,7 +81,7 @@ export async function processNextQueuedTask(): Promise<boolean> {
 }
 
 export async function processQueuedTasks(maxTasks = 1): Promise<number> {
-  const concurrency = Math.min(Math.max(Math.floor(maxTasks), 1), 8);
+  const concurrency = normalizeImageConcurrency(maxTasks);
   const results = await Promise.all(Array.from({ length: concurrency }, () => processNextQueuedTask()));
   return results.filter(Boolean).length;
 }

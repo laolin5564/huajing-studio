@@ -13,6 +13,11 @@ export type UserRole = (typeof userRoles)[number];
 export const imageProviders = ["sub2api", "openai_oauth"] as const;
 export type ImageProvider = (typeof imageProviders)[number];
 
+export const imageConcurrencyLimits = {
+  min: 1,
+  max: 100,
+} as const;
+
 export type DbValue = string | number | null;
 
 export interface GenerationTaskRow {

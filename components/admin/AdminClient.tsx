@@ -24,6 +24,7 @@ import type {
   SystemUpdateInfo,
   WebUpdateTask,
 } from "@/lib/types";
+import { imageConcurrencyLimits } from "@/lib/types";
 import { apiJson, copyTextToClipboard } from "@/components/client-api";
 
 interface StatsResponse {
@@ -1034,8 +1035,8 @@ export function AdminClient() {
                   id="imageConcurrency"
                   className="input"
                   type="number"
-                  min={1}
-                  max={8}
+                  min={imageConcurrencyLimits.min}
+                  max={imageConcurrencyLimits.max}
                   value={imageConcurrency}
                   onChange={(event) => setImageConcurrency(Number(event.target.value))}
                 />

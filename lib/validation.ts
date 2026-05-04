@@ -1,6 +1,13 @@
 import { z } from "zod";
 import { sizeOptions } from "./image-options";
-import { generationModes, imageProviders, taskStatuses, templateCategories, userRoles } from "./types";
+import {
+  generationModes,
+  imageConcurrencyLimits,
+  imageProviders,
+  taskStatuses,
+  templateCategories,
+  userRoles,
+} from "./types";
 
 const nullableString = z
   .union([z.string(), z.null(), z.undefined()])
@@ -93,7 +100,7 @@ export const updateAdminSettingsSchema = z.object({
   sub2apiBaseUrl: z.string().trim().url().max(300).optional(),
   openaiOAuthProxyUrl: z.union([z.string().trim().max(500), z.null()]).optional(),
   imageModel: z.string().trim().min(1).max(100).optional(),
-  imageConcurrency: z.coerce.number().int().min(1).max(8).optional(),
+  imageConcurrency: z.coerce.number().int().min(imageConcurrencyLimits.min).max(imageConcurrencyLimits.max).optional(),
   siteTitle: z.string().trim().min(1).max(80).optional(),
   siteSubtitle: z.string().trim().min(1).max(120).optional(),
   registrationEnabled: z.boolean().optional(),
