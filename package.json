@@ -1,6 +1,6 @@
 {
   "name": "canvas-realm-gpt-image-2-studio",
-  "version": "0.2.12",
+  "version": "0.2.13",
   "private": false,
   "scripts": {
     "dev": "next dev",
