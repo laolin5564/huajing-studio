@@ -1,5 +1,6 @@
 import { AuthError } from "./auth";
 import {
+  getConversation,
   getGeneratedImage,
   getGenerationTask,
   getSourceImage,
@@ -21,6 +22,12 @@ export function assertConversationAccess(user: CurrentUser, conversation: Conver
 export function assertTaskAccess(user: CurrentUser, task: GenerationTaskRow): void {
   if (isAdmin(user) || task.user_id === user.id) {
     return;
+  }
+  if (task.conversation_id) {
+    const conversation = getConversation(task.conversation_id);
+    if (conversation?.user_id === user.id) {
+      return;
+    }
   }
   throw new AuthError("无权访问该任务", 403);
 }
