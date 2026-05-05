@@ -6,7 +6,7 @@ describe("awesome gpt-image-2 case library", () => {
     expect(awesomeCaseLibrary.cases.length).toBe(awesomeCaseLibrary.totalCases);
     expect(awesomeCaseLibrary.categories.length).toBeGreaterThan(5);
     expect(awesomeCaseLibrary.cases[0].imageUrl.startsWith("https://raw.githubusercontent.com/")).toBe(true);
-    expect(awesomeCaseLibrary.cases[0].promptZh.includes("生成一张")).toBe(true);
+    expect(awesomeCaseLibrary.cases[0].prompt.length).toBeGreaterThan(20);
   });
 
   test("filters and paginates cases without loading all prompts into the client", () => {

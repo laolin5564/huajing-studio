@@ -1932,6 +1932,102 @@ button.nav-link {
   margin-bottom: 1rem;
 }
 
+.case-try-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: rgba(246, 249, 247, 0.68);
+  backdrop-filter: blur(14px);
+  animation: caseOverlayIn 180ms ease both;
+}
+
+.case-try-card {
+  width: min(38rem, 100%);
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem;
+  border: 1px solid rgba(202, 214, 206, 0.95);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 26px 70px rgba(18, 31, 24, 0.18);
+}
+
+.case-try-kicker {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 760;
+}
+
+.case-try-card h2 {
+  margin: 0;
+  font-size: clamp(1.28rem, 2.4vw, 1.9rem);
+  line-height: 1.25;
+}
+
+.case-try-card p {
+  overflow: hidden;
+  display: -webkit-box;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.case-try-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2.4rem minmax(0, 1fr) 2.4rem minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.case-try-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 3rem;
+  padding: 0 0.7rem;
+  border: 1px solid rgba(205, 215, 208, 0.9);
+  border-radius: 0.82rem;
+  background: rgba(238, 242, 239, 0.84);
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 780;
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
+  animation: caseStepIn 420ms ease forwards;
+}
+
+.case-try-step svg {
+  flex: 0 0 auto;
+}
+
+.case-try-step.delay-1 {
+  animation-delay: 260ms;
+}
+
+.case-try-step.delay-3 {
+  animation-delay: 760ms;
+}
+
+.case-try-arrow {
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(5, 95, 88, 0.72));
+  opacity: 0;
+  transform-origin: left center;
+  animation: caseArrowIn 360ms ease forwards 180ms;
+}
+
+.case-try-arrow.delay-2 {
+  animation-delay: 600ms;
+}
+
 .source-case-body {
   display: grid;
   gap: 1rem;
@@ -2082,6 +2178,33 @@ button.nav-link {
   font-size: 0.78rem;
   line-height: 1.55;
   white-space: pre-wrap;
+}
+
+@keyframes caseOverlayIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes caseStepIn {
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes caseArrowIn {
+  from {
+    opacity: 0;
+    transform: scaleX(0.1);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
 }
 
 .template-item {
@@ -2237,6 +2360,17 @@ button.nav-link {
   .case-pagination {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .case-try-flow {
+    grid-template-columns: 1fr;
+  }
+
+  .case-try-arrow {
+    width: 2px;
+    height: 1.25rem;
+    justify-self: center;
+    background: linear-gradient(180deg, transparent, rgba(5, 95, 88, 0.72));
   }
 
   .field-row,

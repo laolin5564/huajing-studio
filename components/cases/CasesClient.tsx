@@ -2,15 +2,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
   ChevronRight,
   Copy,
-  ExternalLink,
   Image as ImageIcon,
   ListChecks,
   Plus,
   Search,
+  Send,
   Sparkles,
 } from "lucide-react";
 import clsx from "clsx";
@@ -44,6 +45,14 @@ interface InspirationCasesResponse {
   page: number;
   pageSize: number;
   cases: AwesomeCaseItem[];
+}
+
+interface TryPromptDraft {
+  idLabel: string;
+  title: string;
+  prompt: string;
+  promptPreview: string;
+  size: string;
 }
 
 const upstreamCategoryLabels: Record<string, string> = {
@@ -139,6 +148,7 @@ function caseTemplateCategory(caseItem: AwesomeCaseItem): TemplateCategory {
 }
 
 export function CasesClient() {
+  const router = useRouter();
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [activeScope, setActiveScope] = useState<TemplateScope>("user");
   const [activeTab, setActiveTab] = useState<"effects" | "inspirations">("effects");
@@ -151,6 +161,7 @@ export function CasesClient() {
   const [casePage, setCasePage] = useState(1);
   const [caseLoading, setCaseLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [tryingPrompt, setTryingPrompt] = useState<TryPromptDraft | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -257,8 +268,8 @@ export function CasesClient() {
           scope: activeScope,
           name: caseItem.title.slice(0, 80),
           category: caseTemplateCategory(caseItem),
-          description: `从 awesome-gpt-image-2 案例 #${caseItem.id} 导入，已转写为中文生产提示词。建议商业使用前替换为自有示例图。`,
-          defaultPrompt: caseItem.promptZh,
+          description: `从 awesome-gpt-image-2 案例 #${caseItem.id} 导入。建议商业使用前改写提示词并替换为自有示例图。`,
+          defaultPrompt: caseItem.prompt,
           defaultNegativePrompt: null,
           defaultSize: caseDefaultSize(caseItem),
           defaultReferenceStrength: 0.58,
@@ -277,16 +288,91 @@ export function CasesClient() {
 
   async function copyCasePrompt(caseItem: AwesomeCaseItem): Promise<void> {
     try {
-      await navigator.clipboard.writeText(caseItem.promptZh);
-      setMessage(`已复制案例 #${caseItem.id} 的中文提示词。`);
+      await navigator.clipboard.writeText(caseItem.prompt);
+      setMessage(`已复制案例 #${caseItem.id} 的原始提示词。`);
       setError("");
     } catch {
       setError("复制失败，请手动选中文本复制。");
     }
   }
 
+  function tryPromptDraft(draft: TryPromptDraft): void {
+    setTryingPrompt(draft);
+    setError("");
+    setMessage("");
+
+    const storageKey = `case_try_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    const payload = {
+      title: draft.title,
+      prompt: draft.prompt,
+      size: draft.size,
+    };
+
+    try {
+      window.sessionStorage.setItem(storageKey, JSON.stringify(payload));
+    } catch {
+      setTryingPrompt(null);
+      setError("浏览器无法暂存案例提示词，请复制原始提示词后到工作台生成。");
+      return;
+    }
+    window.setTimeout(() => {
+      const params = new URLSearchParams({
+        mode: "text_to_image",
+        casePromptKey: storageKey,
+        autostart: "1",
+      });
+      router.push(`/?${params.toString()}`);
+    }, 1280);
+  }
+
+  function tryCasePrompt(caseItem: AwesomeCaseItem): void {
+    tryPromptDraft({
+      idLabel: `案例 #${caseItem.id}`,
+      title: caseItem.title,
+      prompt: caseItem.prompt,
+      promptPreview: caseItem.promptPreview,
+      size: caseDefaultSize(caseItem),
+    });
+  }
+
+  function tryInspirationPrompt(inspiration: TemplateInspiration): void {
+    tryPromptDraft({
+      idLabel: inspiration.title,
+      title: inspiration.title,
+      prompt: inspiration.draft.defaultPrompt,
+      promptPreview: inspiration.effectDirection,
+      size: inspiration.defaultSize,
+    });
+  }
+
   return (
     <>
+      {tryingPrompt ? (
+        <div className="case-try-overlay" role="status" aria-live="polite">
+          <div className="case-try-card">
+            <span className="case-try-kicker">正在试用{tryingPrompt.idLabel}</span>
+            <h2>把提示词复制到文生图，然后点击生成</h2>
+            <div className="case-try-flow" aria-hidden="true">
+              <div className="case-try-step active">
+                <Copy size={16} />
+                <span>复制原始提示词</span>
+              </div>
+              <div className="case-try-arrow" />
+              <div className="case-try-step active delay-1">
+                <Sparkles size={16} />
+                <span>切换到文生图</span>
+              </div>
+              <div className="case-try-arrow delay-2" />
+              <div className="case-try-step active delay-3">
+                <Send size={16} />
+                <span>开始生成</span>
+              </div>
+            </div>
+            <p>{tryingPrompt.promptPreview}</p>
+          </div>
+        </div>
+      ) : null}
+
       <section className="page-heading">
         <div>
           <h1>案例中心</h1>
@@ -332,7 +418,7 @@ export function CasesClient() {
           <div className="panel-header">
             <div>
               <h2>完整案例效果库</h2>
-              <p>同步 awesome-gpt-image-2 的全量案例。默认显示中文生产提示词，原文保留用于溯源。</p>
+              <p>同步 awesome-gpt-image-2 的全量案例。只保留源项目原始提示词，方便按原案例回看和改写。</p>
             </div>
             <span className="badge">
               <ImageIcon size={13} aria-hidden="true" />
@@ -401,7 +487,7 @@ export function CasesClient() {
                       <span className="badge">{upstreamLabel(caseItem.category)}</span>
                     </div>
                     <h3>{caseItem.title}</h3>
-                    <p>{caseItem.promptPreviewZh}</p>
+                    <p>{caseItem.promptPreview}</p>
                     <div className="case-tag-row">
                       {[...caseItem.styles, ...caseItem.scenes].slice(0, 5).map((tag) => (
                         <span key={`${caseItem.id}-${tag}`}>{upstreamLabel(tag)}</span>
@@ -410,14 +496,7 @@ export function CasesClient() {
                     <details className="prompt-breakdown compact">
                       <summary>
                         <ListChecks size={14} aria-hidden="true" />
-                        查看中文提示词
-                      </summary>
-                      <p className="case-prompt-text">{caseItem.promptZh}</p>
-                    </details>
-                    <details className="prompt-breakdown compact">
-                      <summary>
-                        <ExternalLink size={14} aria-hidden="true" />
-                        原始英文提示词
+                        原始提示词
                       </summary>
                       <p className="case-prompt-text">{caseItem.prompt}</p>
                     </details>
@@ -428,12 +507,12 @@ export function CasesClient() {
                       </button>
                       <button className="button" type="button" onClick={() => void copyCasePrompt(caseItem)}>
                         <Copy size={15} aria-hidden="true" />
-                        复制中文
+                        复制原始
                       </button>
-                      <a className="button" href={caseItem.githubUrl} target="_blank" rel="noreferrer">
-                        <ExternalLink size={15} aria-hidden="true" />
-                        来源
-                      </a>
+                      <button className="button primary" type="button" disabled={Boolean(tryingPrompt)} onClick={() => tryCasePrompt(caseItem)}>
+                        <Send size={15} aria-hidden="true" />
+                        试一试
+                      </button>
                     </div>
                   </div>
                 </article>
@@ -520,10 +599,10 @@ export function CasesClient() {
                       <Plus size={15} aria-hidden="true" />
                       导入模板
                     </button>
-                    <a className="button" href={inspiration.sourceUrl} target="_blank" rel="noreferrer">
-                      <ExternalLink size={15} aria-hidden="true" />
-                      来源
-                    </a>
+                    <button className="button primary" type="button" disabled={Boolean(tryingPrompt)} onClick={() => tryInspirationPrompt(inspiration)}>
+                      <Send size={15} aria-hidden="true" />
+                      试一试
+                    </button>
                   </div>
                 </article>
               ))}

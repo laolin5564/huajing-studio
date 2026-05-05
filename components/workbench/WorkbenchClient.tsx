@@ -83,6 +83,39 @@ interface PromptOptimizerResponse {
   prompt: string;
 }
 
+interface CaseTryPromptPayload {
+  caseId?: number;
+  title?: string;
+  prompt: string;
+  size?: string;
+}
+
+function readCaseTryPrompt(storageKey: string | null): CaseTryPromptPayload | null {
+  if (!storageKey) {
+    return null;
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(storageKey);
+    window.sessionStorage.removeItem(storageKey);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Partial<CaseTryPromptPayload>;
+    if (typeof parsed.prompt !== "string" || !parsed.prompt.trim()) {
+      return null;
+    }
+    return {
+      caseId: typeof parsed.caseId === "number" ? parsed.caseId : undefined,
+      title: typeof parsed.title === "string" ? parsed.title : undefined,
+      prompt: parsed.prompt,
+      size: typeof parsed.size === "string" ? parsed.size : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
 const defaultPromptByMode: Record<WorkbenchMode, string> = {
   text_to_image: "一张简约高级的公司产品宣传海报，白色背景，柔和自然光，科技感，留白充足",
   image_to_image: "保留主体特征，生成更高级干净的商业摄影场景，光线自然，质感清晰",
@@ -260,6 +293,7 @@ export function WorkbenchClient() {
   const [fixedPromptSaving, setFixedPromptSaving] = useState(false);
   const [templates, setTemplates] = useState<PublicTemplate[]>([]);
   const [busy, setBusy] = useState(false);
+  const [pendingCaseTry, setPendingCaseTry] = useState<CaseTryPromptPayload | null>(null);
   const [promptOptimizing, setPromptOptimizing] = useState(false);
   const [chatBusy, setChatBusy] = useState(false);
   const [cancelingTaskId, setCancelingTaskId] = useState<string | null>(null);
@@ -335,6 +369,27 @@ export function WorkbenchClient() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const casePromptKey = params.get("casePromptKey");
+    const casePromptPayload = readCaseTryPrompt(casePromptKey);
+    if (casePromptPayload?.prompt) {
+      const nextSize = normalizeImageSizeOption(casePromptPayload.size ?? "auto");
+      setMode("text_to_image");
+      setPrompt(casePromptPayload.prompt);
+      setTemplateId("");
+      setTemplateVariableValues({});
+      setSourceFiles([]);
+      setSourceImageIds([]);
+      setSourcePreviews([]);
+      setQuantity(1);
+      setSize(nextSize);
+      setMessage("已从案例中心填入提示词，正在开始文生图。");
+      if (params.get("autostart") === "1") {
+        setPendingCaseTry({ ...casePromptPayload, size: nextSize });
+      }
+      window.history.replaceState(null, "", window.location.pathname);
+      return;
+    }
+
     const nextMode = params.get("mode");
     const nextSourceImageId = params.get("sourceImageId");
     const normalizedMode = nextMode === "edit_image" ? "image_to_image" : nextMode;
@@ -739,6 +794,57 @@ export function WorkbenchClient() {
       setBusy(false);
     }
   }
+
+  useEffect(() => {
+    if (!pendingCaseTry || busy) {
+      return;
+    }
+    async function submitCaseTryPrompt(payload: CaseTryPromptPayload): Promise<void> {
+      if (!payload.prompt.trim()) {
+        setError("案例提示词为空，无法生成");
+        return;
+      }
+
+      setBusy(true);
+      setMessage("");
+      setError("");
+
+      try {
+        const created = await apiJson<CreateTaskResponse>("/api/generation-tasks", {
+          method: "POST",
+          body: JSON.stringify({
+            mode: "text_to_image",
+            prompt: payload.prompt,
+            negativePrompt,
+            size: normalizeImageSizeOption(payload.size ?? "auto"),
+            quantity: 1,
+            templateId: null,
+            sourceImageId: null,
+            sourceImageIds: undefined,
+            referenceStrength,
+            styleStrength,
+          }),
+        });
+
+        setActiveConversationId(created.conversationId);
+        setSelectedImageId(null);
+        setMessage(payload.caseId ? `已开始试用案例 #${payload.caseId}。` : "已开始试用案例提示词。");
+        await refreshConversations();
+        await refreshActiveConversation(created.conversationId);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "提交失败");
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    const timer = window.setTimeout(() => {
+      const payload = pendingCaseTry;
+      setPendingCaseTry(null);
+      void submitCaseTryPrompt(payload);
+    }, 360);
+    return () => window.clearTimeout(timer);
+  }, [busy, negativePrompt, pendingCaseTry, referenceStrength, refreshActiveConversation, refreshConversations, styleStrength]);
 
   async function copyPrompt(value: string): Promise<void> {
     try {
