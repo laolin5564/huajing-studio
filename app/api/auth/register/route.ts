@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   createUserSession,
   defaultGroupIdForRegistration,
-  defaultQuotaForRegistration,
   hashPassword,
   isRegistrationOpen,
   nextUserRoleForRegistration,
@@ -32,7 +31,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       passwordHash: hashPassword(input.password),
       role: nextUserRoleForRegistration(),
       groupId: defaultGroupIdForRegistration(),
-      monthlyQuota: defaultQuotaForRegistration(),
+      monthlyQuota: null,
     });
     const { token } = createUserSession(user.id);
     const response = NextResponse.json({ user: toPublicUser(user) }, { status: 201 });

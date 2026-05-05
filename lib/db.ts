@@ -9,6 +9,8 @@ import { normalizeImageSizeOption } from "./image-options";
 import { normalizeProxyUrl, redactProxyUrl } from "./proxy";
 import type {
   AdminStats,
+  AdminUserListSummary,
+  AdminUserPagination,
   CanvasProjectRow,
   ConversationMessageRow,
   ConversationRow,
@@ -133,6 +135,29 @@ export interface UpdateUserInput {
   monthlyQuota?: number | null;
 }
 
+export interface ListUsersInput {
+  q?: string;
+  status?: UserStatus | null;
+  role?: UserRole | null;
+  groupId?: string | null;
+  page?: number;
+  pageSize?: number;
+  sort?: "createdAt" | "updatedAt" | "name" | "email";
+  direction?: "asc" | "desc";
+}
+
+export interface ListUsersResult {
+  users: UserRow[];
+  pagination: AdminUserPagination;
+  summary: AdminUserListSummary;
+}
+
+export type UserGroupWithStats = UserGroupRow & {
+  member_count?: number | null;
+  active_member_count?: number | null;
+  month_used?: number | null;
+};
+
 type AppSettingKey =
   | "image_provider"
   | "sub2api_api_key"
@@ -148,8 +173,7 @@ type AppSettingKey =
   | "site_title"
   | "site_subtitle"
   | "registration_enabled"
-  | "registration_default_group_id"
-  | "registration_default_quota";
+  | "registration_default_group_id";
 
 function templateTextVariable(
   key: string,
@@ -715,6 +739,28 @@ export function listUserGroups(): UserGroupRow[] {
   );
 }
 
+export function listUserGroupsWithStats(): UserGroupWithStats[] {
+  return castRows<UserGroupWithStats>(
+    getDb()
+      .prepare(
+        `
+        SELECT
+          ug.*,
+          COUNT(u.id) AS member_count,
+          SUM(CASE WHEN u.status = 'active' THEN 1 ELSE 0 END) AS active_member_count,
+          COALESCE(SUM(CASE WHEN gt.status != 'failed' THEN gt.quantity ELSE 0 END), 0) AS month_used
+        FROM user_groups ug
+        LEFT JOIN users u ON u.group_id = ug.id
+        LEFT JOIN generation_tasks gt ON gt.user_id = u.id AND gt.created_at >= ?
+        GROUP BY ug.id
+        ORDER BY ug.created_at ASC
+        LIMIT 500
+      `,
+      )
+      .all(monthStartIso()),
+  );
+}
+
 export function getUserGroup(id: string): UserGroupRow | null {
   return castRow<UserGroupRow>(
     getDb().prepare("SELECT * FROM user_groups WHERE id = ? LIMIT 1").get(id),
@@ -796,9 +842,111 @@ export function getUserByEmail(email: string): UserRow | null {
 }
 
 export function listUsers(): UserRow[] {
-  return castRows<UserRow>(
-    getDb().prepare("SELECT * FROM users ORDER BY created_at DESC LIMIT 500").all(),
+  return listUsersPage({ page: 1, pageSize: 500 }).users;
+}
+
+export function listUsersPage(input: ListUsersInput = {}): ListUsersResult {
+  const page = Math.max(1, Math.floor(input.page ?? 1));
+  const pageSize = Math.min(100, Math.max(10, Math.floor(input.pageSize ?? 50)));
+  const direction = input.direction === "asc" ? "ASC" : "DESC";
+  const sortColumns: Record<NonNullable<ListUsersInput["sort"]>, string> = {
+    createdAt: "u.created_at",
+    updatedAt: "u.updated_at",
+    name: "u.name",
+    email: "u.email",
+  };
+  const orderBy = sortColumns[input.sort ?? "createdAt"] ?? sortColumns.createdAt;
+  const where: string[] = [];
+  const params: Array<string | number | null> = [];
+  const keyword = input.q?.trim().toLowerCase();
+
+  if (keyword) {
+    where.push("(LOWER(u.name) LIKE ? OR LOWER(u.email) LIKE ? OR LOWER(COALESCE(ug.name, '')) LIKE ?)");
+    const pattern = `%${keyword}%`;
+    params.push(pattern, pattern, pattern);
+  }
+
+  if (input.status) {
+    where.push("u.status = ?");
+    params.push(input.status);
+  }
+
+  if (input.role) {
+    where.push("u.role = ?");
+    params.push(input.role);
+  }
+
+  if (input.groupId) {
+    if (input.groupId === "__none") {
+      where.push("u.group_id IS NULL");
+    } else {
+      where.push("u.group_id = ?");
+      params.push(input.groupId);
+    }
+  }
+
+  const whereSql = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+  const database = getDb();
+  const totalRow = castRow<{ count: number }>(
+    database
+      .prepare(
+        `
+        SELECT COUNT(*) AS count
+        FROM users u
+        LEFT JOIN user_groups ug ON ug.id = u.group_id
+        ${whereSql}
+      `,
+      )
+      .get(...params),
   );
+  const total = totalRow?.count ?? 0;
+  const offset = (page - 1) * pageSize;
+  const users = castRows<UserRow>(
+    database
+      .prepare(
+        `
+        SELECT u.*
+        FROM users u
+        LEFT JOIN user_groups ug ON ug.id = u.group_id
+        ${whereSql}
+        ORDER BY ${orderBy} ${direction}, u.id ASC
+        LIMIT ? OFFSET ?
+      `,
+      )
+      .all(...params, pageSize, offset),
+  );
+  const summaryRow = castRow<AdminUserListSummary>(
+    database
+      .prepare(
+        `
+        SELECT
+          COUNT(*) AS total,
+          SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active,
+          SUM(CASE WHEN status = 'disabled' THEN 1 ELSE 0 END) AS disabled,
+          SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END) AS admin,
+          SUM(CASE WHEN role = 'member' THEN 1 ELSE 0 END) AS member
+        FROM users
+      `,
+      )
+      .get(),
+  );
+
+  return {
+    users,
+    pagination: {
+      page,
+      pageSize,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    },
+    summary: {
+      total: summaryRow?.total ?? 0,
+      active: summaryRow?.active ?? 0,
+      disabled: summaryRow?.disabled ?? 0,
+      admin: summaryRow?.admin ?? 0,
+      member: summaryRow?.member ?? 0,
+    },
+  };
 }
 
 export function updateUser(id: string, input: UpdateUserInput): UserRow {
@@ -1372,18 +1520,15 @@ export function getPublicSiteSettings(): {
 export function getRegistrationSettings(): {
   registrationEnabled: boolean;
   registrationDefaultGroupId: string;
-  registrationDefaultQuota: number;
 } {
   const defaultGroup = getDefaultGroup();
   const configuredGroupId = getAppSetting("registration_default_group_id");
   const defaultGroupId =
     configuredGroupId && getUserGroup(configuredGroupId) ? configuredGroupId : defaultGroup.id;
-  const quota = Number(getAppSetting("registration_default_quota") ?? defaultGroup.monthly_quota);
 
   return {
     registrationEnabled: getAppSetting("registration_enabled") !== "false",
     registrationDefaultGroupId: defaultGroupId,
-    registrationDefaultQuota: Number.isFinite(quota) ? Math.max(0, Math.floor(quota)) : defaultGroup.monthly_quota,
   };
 }
 
@@ -1407,7 +1552,7 @@ export function getPublicAdminSettings(): PublicAdminSettings {
     siteSubtitle: site.siteSubtitle,
     registrationEnabled: registration.registrationEnabled,
     registrationDefaultGroupId: registration.registrationDefaultGroupId,
-    registrationDefaultQuota: registration.registrationDefaultQuota,
+    registrationDefaultQuota: getUserGroup(registration.registrationDefaultGroupId)?.monthly_quota ?? getDefaultGroup().monthly_quota,
   };
 }
 
@@ -2882,11 +3027,14 @@ export function imagePublicUrl(filePath: string): string {
   return `${PUBLIC_FILE_PREFIX}/${filePath.split("/").map(encodeURIComponent).join("/")}`;
 }
 
-export function toPublicUserGroup(row: UserGroupRow): PublicUserGroup {
+export function toPublicUserGroup(row: UserGroupWithStats): PublicUserGroup {
   return {
     id: row.id,
     name: row.name,
     monthlyQuota: row.monthly_quota,
+    memberCount: row.member_count ?? undefined,
+    activeMemberCount: row.active_member_count ?? undefined,
+    monthUsed: row.month_used ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

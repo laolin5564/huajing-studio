@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { createUserGroup, listUserGroups, toPublicUserGroup } from "@/lib/db";
+import { createUserGroup, listUserGroupsWithStats, toPublicUserGroup } from "@/lib/db";
 import { handleRouteError } from "@/lib/http";
 import { upsertUserGroupSchema } from "@/lib/validation";
 
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     requireAdmin(request);
-    const groups = listUserGroups().map(toPublicUserGroup);
+    const groups = listUserGroupsWithStats().map(toPublicUserGroup);
     return NextResponse.json({ groups });
   } catch (error) {
     return handleRouteError(error);

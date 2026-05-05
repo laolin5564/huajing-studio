@@ -169,7 +169,6 @@ export const updateAdminSettingsSchema = z.object({
   siteSubtitle: z.string().trim().min(1).max(120).optional(),
   registrationEnabled: z.boolean().optional(),
   registrationDefaultGroupId: z.string().trim().min(1).optional(),
-  registrationDefaultQuota: z.coerce.number().int().min(0).max(100000).optional(),
 });
 
 export const openAIOAuthExchangeSchema = z.object({
@@ -242,6 +241,43 @@ export const updateUserSchema = z.object({
   status: z.enum(userStatuses).optional(),
   groupId: nullableString,
   monthlyQuota: z.coerce.number().int().min(0).max(100000).nullable().optional(),
+});
+
+export const listAdminUsersQuerySchema = z.object({
+  q: z.string().trim().max(160).optional().default(""),
+  status: z
+    .string()
+    .optional()
+    .transform((value) =>
+      userStatuses.includes(value as (typeof userStatuses)[number])
+        ? (value as (typeof userStatuses)[number])
+        : null,
+    ),
+  role: z
+    .string()
+    .optional()
+    .transform((value) =>
+      userRoles.includes(value as (typeof userRoles)[number])
+        ? (value as (typeof userRoles)[number])
+        : null,
+    ),
+  groupId: nullableString,
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(10).max(100).default(50),
+  sort: z
+    .string()
+    .optional()
+    .transform((value) =>
+      (["createdAt", "updatedAt", "name", "email"].includes(value ?? "") ? value ?? "createdAt" : "createdAt") as
+        | "createdAt"
+        | "updatedAt"
+        | "name"
+        | "email",
+    ),
+  direction: z
+    .string()
+    .optional()
+    .transform((value) => (value === "asc" ? "asc" : "desc") as "asc" | "desc"),
 });
 
 export const createAdminUserSchema = z.object({

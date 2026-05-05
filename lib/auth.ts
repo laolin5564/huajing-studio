@@ -150,10 +150,6 @@ export function defaultGroupIdForRegistration(): string {
   return getRegistrationSettings().registrationDefaultGroupId || getDefaultGroup().id;
 }
 
-export function defaultQuotaForRegistration(): number {
-  return getRegistrationSettings().registrationDefaultQuota;
-}
-
 export function isRegistrationOpen(): boolean {
   return getRegistrationSettings().registrationEnabled || countUsers() === 0;
 }

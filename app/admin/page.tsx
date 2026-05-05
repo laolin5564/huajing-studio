@@ -1,5 +1,5 @@
-import { AdminClient } from "@/components/admin/AdminClient";
+import { AdminOverviewClient } from "@/components/admin/AdminOverviewClient";
 
 export default function AdminPage() {
-  return <AdminClient />;
+  return <AdminOverviewClient />;
 }

@@ -333,6 +333,9 @@ export interface PublicUserGroup {
   id: string;
   name: string;
   monthlyQuota: number;
+  memberCount?: number;
+  activeMemberCount?: number;
+  monthUsed?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -350,6 +353,21 @@ export interface PublicUser {
   monthUsed: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface AdminUserListSummary {
+  total: number;
+  active: number;
+  disabled: number;
+  admin: number;
+  member: number;
+}
+
+export interface AdminUserPagination {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
 }
 
 export interface CurrentUser {

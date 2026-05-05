@@ -73,9 +73,6 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       }
       setAppSetting("registration_default_group_id", input.registrationDefaultGroupId);
     }
-    if (input.registrationDefaultQuota !== undefined) {
-      setAppSetting("registration_default_quota", String(input.registrationDefaultQuota));
-    }
 
     return NextResponse.json({ settings: getPublicAdminSettings() });
   } catch (error) {

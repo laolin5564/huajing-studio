@@ -29,14 +29,18 @@ test("data management keeps template scope and image deletion references consist
       getTemplate,
       listImages,
       listTemplates,
+      listUserGroupsWithStats,
+      listUsersPage,
       saveCanvasProject,
       saveImageProviderChannels,
+      setAppSetting,
       toPublicCanvasProject,
       toPublicImage,
       toPublicTemplate,
       toPublicUser,
       updateUser,
     } = await import("../lib/db");
+    const { defaultGroupIdForRegistration } = await import("../lib/auth");
 
     const group = createUserGroup({ name: "数据管理测试分组", monthlyQuota: 100 });
     const owner = createUser({
@@ -111,6 +115,37 @@ test("data management keeps template scope and image deletion references consist
     const disabledOther = updateUser(other.id, { status: "disabled" });
     assert.equal(disabledOther.status, "disabled");
     assert.equal(toPublicUser(disabledOther).status, "disabled");
+
+    const pagedUsers = listUsersPage({
+      q: "template",
+      status: "active",
+      role: "member",
+      groupId: group.id,
+      page: 1,
+      pageSize: 10,
+      sort: "email",
+      direction: "asc",
+    });
+    assert.equal(pagedUsers.pagination.total, 1);
+    assert.equal(pagedUsers.users[0]?.email, "template-owner@example.test");
+    assert.equal(pagedUsers.summary.total >= 2, true);
+
+    const groupStats = listUserGroupsWithStats().find((item) => item.id === group.id);
+    assert.equal(groupStats?.member_count, 2);
+    assert.equal(groupStats?.active_member_count, 1);
+
+    setAppSetting("registration_default_group_id", group.id);
+    const registered = createUser({
+      email: "registered-by-group@example.test",
+      name: "Registered By Group",
+      passwordHash: "hash",
+      role: "member",
+      groupId: defaultGroupIdForRegistration(),
+      monthlyQuota: null,
+    });
+    assert.equal(registered.group_id, group.id);
+    assert.equal(registered.monthly_quota, null);
+    assert.equal(toPublicUser(registered).monthlyQuota, group.monthly_quota);
 
     const conversation = createConversation("删除图片测试", owner.id);
     const task = createGenerationTask({

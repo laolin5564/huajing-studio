@@ -23,7 +23,7 @@ interface MeResponse {
 
 const allModes = ["", "text_to_image", "image_to_image"] as const;
 
-export function HistoryClient() {
+export function HistoryClient({ embedded = false }: { embedded?: boolean } = {}) {
   const [keyword, setKeyword] = useState("");
   const [mode, setMode] = useState<(typeof allModes)[number]>("");
   const [templateId, setTemplateId] = useState("");
@@ -187,16 +187,18 @@ export function HistoryClient() {
 
   return (
     <>
-      <section className="page-heading">
-        <div>
-          <h1>历史记录</h1>
-          <p>默认按生成时间倒序展示，可按模式、模板和 prompt 关键词筛选。</p>
-        </div>
-        <button className="button" type="button" onClick={loadImages} disabled={loading}>
-          <RefreshCw size={16} aria-hidden="true" />
-          {loading ? "刷新中" : "刷新"}
-        </button>
-      </section>
+      {!embedded ? (
+        <section className="page-heading">
+          <div>
+            <h1>历史记录</h1>
+            <p>默认按生成时间倒序展示，可按模式、模板和 prompt 关键词筛选。</p>
+          </div>
+          <button className="button" type="button" onClick={loadImages} disabled={loading}>
+            <RefreshCw size={16} aria-hidden="true" />
+            {loading ? "刷新中" : "刷新"}
+          </button>
+        </section>
+      ) : null}
 
       <section className="history-toolbar">
         <div className="field">

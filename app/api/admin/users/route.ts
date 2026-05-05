@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hashPassword, requireAdmin } from "@/lib/auth";
-import { createUser, getUserByEmail, getUserGroup, listUsers, toPublicUser } from "@/lib/db";
+import { createUser, getUserByEmail, getUserGroup, listUsersPage, toPublicUser } from "@/lib/db";
 import { handleRouteError, jsonError } from "@/lib/http";
-import { createAdminUserSchema } from "@/lib/validation";
+import { createAdminUserSchema, listAdminUsersQuerySchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,8 +10,13 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     requireAdmin(request);
-    const users = listUsers().map(toPublicUser);
-    return NextResponse.json({ users });
+    const input = listAdminUsersQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams));
+    const result = listUsersPage(input);
+    return NextResponse.json({
+      users: result.users.map(toPublicUser),
+      pagination: result.pagination,
+      summary: result.summary,
+    });
   } catch (error) {
     return handleRouteError(error);
   }
