@@ -6,13 +6,22 @@ import {
   LayoutTemplate,
   Plus,
   Save,
+  ScanText,
   ShieldCheck,
   Trash2,
   UserRound,
 } from "lucide-react";
 import clsx from "clsx";
 import { imageSizeLabels, sizeOptions } from "@/lib/image-options";
-import type { CurrentUser, PublicTemplate, TemplateCategory, TemplateScope } from "@/lib/types";
+import type {
+  CurrentUser,
+  PublicTemplate,
+  TemplateCategory,
+  TemplateScope,
+  TemplateVariableDefinition,
+  TemplateVariableOption,
+  TemplateVariableType,
+} from "@/lib/types";
 import { apiJson, categoryLabels, formatDateTime } from "@/components/client-api";
 
 interface TemplateListResponse {
@@ -28,18 +37,98 @@ interface MeResponse {
 }
 
 const categoryOptions: TemplateCategory[] = ["use_case", "platform", "company"];
+const templateVariableTypeLabels: Record<TemplateVariableType, string> = {
+  text: "短文本",
+  textarea: "长文本",
+  select: "下拉选项",
+};
 
-const emptyForm = {
+interface TemplateForm {
+  name: string;
+  category: TemplateCategory;
+  description: string;
+  defaultPrompt: string;
+  defaultNegativePrompt: string;
+  defaultSize: string;
+  defaultReferenceStrength: number;
+  defaultStyleStrength: number;
+  sourceImageId: string | null;
+  templateVariables: TemplateVariableDefinition[];
+}
+
+const emptyForm: TemplateForm = {
   name: "",
-  category: "company" as TemplateCategory,
+  category: "company",
   description: "",
   defaultPrompt: "",
   defaultNegativePrompt: "",
   defaultSize: "auto",
   defaultReferenceStrength: 0.6,
   defaultStyleStrength: 0.7,
-  sourceImageId: null as string | null,
+  sourceImageId: null,
+  templateVariables: [],
 };
+
+function templateVariableFromKey(key: string): TemplateVariableDefinition {
+  return {
+    key,
+    label: key,
+    type: "text",
+    required: false,
+    placeholder: null,
+    defaultValue: null,
+    helperText: null,
+    options: [],
+  };
+}
+
+function extractPromptVariableKeys(prompt: string): string[] {
+  return Array.from(prompt.matchAll(/\{([^{}]+)\}/g), (match) => match[1]?.trim() ?? "")
+    .filter(Boolean)
+    .filter((key, index, keys) => keys.indexOf(key) === index);
+}
+
+function formatVariableOptions(options: TemplateVariableOption[]): string {
+  return options.map((option) => option.label === option.value ? option.value : `${option.label}=${option.value}`).join("\n");
+}
+
+function parseVariableOptions(value: string): TemplateVariableOption[] {
+  return value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 12)
+    .map((line) => {
+      const separatorIndex = line.indexOf("=");
+      if (separatorIndex === -1) {
+        return { label: line, value: line };
+      }
+      const label = line.slice(0, separatorIndex).trim();
+      const optionValue = line.slice(separatorIndex + 1).trim();
+      return { label: label || optionValue, value: optionValue || label };
+    })
+    .filter((option) => option.label && option.value);
+}
+
+function normalizeTemplateVariables(variables: TemplateVariableDefinition[]): TemplateVariableDefinition[] {
+  return variables
+    .map((variable) => {
+      const key = variable.key.trim();
+      const label = variable.label.trim() || key;
+      return {
+        ...variable,
+        key,
+        label,
+        placeholder: variable.placeholder?.trim() || null,
+        defaultValue: variable.defaultValue?.trim() || null,
+        helperText: variable.helperText?.trim() || null,
+        options: variable.options
+          .map((option) => ({ label: option.label.trim(), value: option.value.trim() }))
+          .filter((option) => option.label && option.value),
+      };
+    })
+    .filter((variable) => variable.key && variable.label);
+}
 
 export function TemplatesClient() {
   const [templates, setTemplates] = useState<PublicTemplate[]>([]);
@@ -109,6 +198,7 @@ export function TemplatesClient() {
       defaultReferenceStrength: template.defaultReferenceStrength,
       defaultStyleStrength: template.defaultStyleStrength,
       sourceImageId: template.sourceImageId,
+      templateVariables: template.templateVariables,
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -125,6 +215,7 @@ export function TemplatesClient() {
         scope: editingId ? undefined : activeScope,
         description: form.description || null,
         defaultNegativePrompt: form.defaultNegativePrompt || null,
+        templateVariables: normalizeTemplateVariables(form.templateVariables),
       });
       const url = editingId ? `/api/templates/${editingId}` : "/api/templates";
       const method = editingId ? "PUT" : "POST";
@@ -138,6 +229,58 @@ export function TemplatesClient() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function addTemplateVariable(): void {
+    setForm((current) => {
+      const keys = new Set(current.templateVariables.map((variable) => variable.key));
+      const promptKey = extractPromptVariableKeys(current.defaultPrompt).find((key) => !keys.has(key));
+      const fallbackKey = `变量${current.templateVariables.length + 1}`;
+      const key = promptKey ?? fallbackKey;
+      return {
+        ...current,
+        templateVariables: [...current.templateVariables, templateVariableFromKey(key)],
+      };
+    });
+  }
+
+  function syncTemplateVariablesFromPrompt(): void {
+    const keys = new Set(form.templateVariables.map((variable) => variable.key));
+    const nextVariables = extractPromptVariableKeys(form.defaultPrompt)
+      .filter((key) => !keys.has(key))
+      .map(templateVariableFromKey);
+    if (nextVariables.length === 0) {
+      setMessage("没有发现新的 Prompt 占位符。");
+      return;
+    }
+    setMessage(`已添加 ${nextVariables.length} 个变量。`);
+    setError("");
+    setForm((current) => {
+      const currentKeys = new Set(current.templateVariables.map((variable) => variable.key));
+      return {
+        ...current,
+        templateVariables: [
+          ...current.templateVariables,
+          ...nextVariables.filter((variable) => !currentKeys.has(variable.key)),
+        ],
+      };
+    });
+  }
+
+  function updateTemplateVariable(index: number, patch: Partial<TemplateVariableDefinition>): void {
+    setForm((current) => ({
+      ...current,
+      templateVariables: current.templateVariables.map((variable, variableIndex) =>
+        variableIndex === index ? { ...variable, ...patch } : variable,
+      ),
+    }));
+  }
+
+  function removeTemplateVariable(index: number): void {
+    setForm((current) => ({
+      ...current,
+      templateVariables: current.templateVariables.filter((_, variableIndex) => variableIndex !== index),
+    }));
   }
 
   async function deleteCurrentTemplate(template: PublicTemplate): Promise<void> {
@@ -270,6 +413,9 @@ export function TemplatesClient() {
                     </span>
                     <span className="badge">参考 {template.defaultReferenceStrength.toFixed(2)}</span>
                     <span className="badge">风格 {template.defaultStyleStrength.toFixed(2)}</span>
+                    {template.templateVariables.length > 0 ? (
+                      <span className="badge">变量 {template.templateVariables.length}</span>
+                    ) : null}
                     <span className="badge">{template.scope === "platform" ? "平台" : "用户"}</span>
                   </div>
                   <small>更新于 {formatDateTime(template.updatedAt)}</small>
@@ -359,6 +505,148 @@ export function TemplatesClient() {
                 onChange={(event) => setForm((current) => ({ ...current, defaultPrompt: event.target.value }))}
               />
             </div>
+            <section className="template-variable-editor">
+              <div className="template-variable-editor-header">
+                <div>
+                  <strong>模板变量</strong>
+                  <span>工作台会按这里的字段生成“填写生产参数”表单</span>
+                </div>
+                <div className="template-variable-editor-actions">
+                  <button className="button subtle" type="button" onClick={syncTemplateVariablesFromPrompt}>
+                    <ScanText size={15} aria-hidden="true" />
+                    识别占位符
+                  </button>
+                  <button className="button" type="button" onClick={addTemplateVariable}>
+                    <Plus size={15} aria-hidden="true" />
+                    添加变量
+                  </button>
+                </div>
+              </div>
+              {form.templateVariables.length > 0 ? (
+                <div className="template-variable-list">
+                  {form.templateVariables.map((variable, index) => (
+                    <div className="template-variable-item" key={`${variable.key}-${index}`}>
+                      <div className="template-variable-item-head">
+                        <span className="badge">变量 {index + 1}</span>
+                        <button
+                          className="icon-button danger"
+                          type="button"
+                          onClick={() => removeTemplateVariable(index)}
+                          title="删除变量"
+                        >
+                          <Trash2 size={15} aria-hidden="true" />
+                        </button>
+                      </div>
+                      <div className="field-row">
+                        <div className="field">
+                          <label htmlFor={`templateVariableKey-${index}`}>占位符 key</label>
+                          <input
+                            id={`templateVariableKey-${index}`}
+                            className="input"
+                            value={variable.key}
+                            placeholder="例如：产品名称"
+                            onChange={(event) => updateTemplateVariable(index, { key: event.target.value })}
+                          />
+                        </div>
+                        <div className="field">
+                          <label htmlFor={`templateVariableLabel-${index}`}>表单名称</label>
+                          <input
+                            id={`templateVariableLabel-${index}`}
+                            className="input"
+                            value={variable.label}
+                            placeholder="例如：产品名称"
+                            onChange={(event) => updateTemplateVariable(index, { label: event.target.value })}
+                          />
+                        </div>
+                      </div>
+                      <div className="field-row">
+                        <div className="field">
+                          <label htmlFor={`templateVariableType-${index}`}>输入类型</label>
+                          <select
+                            id={`templateVariableType-${index}`}
+                            className="select"
+                            value={variable.type}
+                            onChange={(event) =>
+                              updateTemplateVariable(index, { type: event.target.value as TemplateVariableType })
+                            }
+                          >
+                            {Object.entries(templateVariableTypeLabels).map(([type, label]) => (
+                              <option key={type} value={type}>
+                                {label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <label className="switch-row template-variable-required">
+                          <input
+                            type="checkbox"
+                            checked={variable.required}
+                            onChange={(event) => updateTemplateVariable(index, { required: event.target.checked })}
+                          />
+                          <span>
+                            <strong>必填</strong>
+                            <small>为空时工作台会提示补充</small>
+                          </span>
+                        </label>
+                      </div>
+                      <div className="field-row">
+                        <div className="field">
+                          <label htmlFor={`templateVariablePlaceholder-${index}`}>输入提示</label>
+                          <input
+                            id={`templateVariablePlaceholder-${index}`}
+                            className="input"
+                            value={variable.placeholder ?? ""}
+                            placeholder="例如：桌面空气净化器"
+                            onChange={(event) => updateTemplateVariable(index, { placeholder: event.target.value })}
+                          />
+                        </div>
+                        <div className="field">
+                          <label htmlFor={`templateVariableDefault-${index}`}>默认值</label>
+                          <input
+                            id={`templateVariableDefault-${index}`}
+                            className="input"
+                            value={variable.defaultValue ?? ""}
+                            placeholder="可留空"
+                            onChange={(event) => updateTemplateVariable(index, { defaultValue: event.target.value })}
+                          />
+                        </div>
+                      </div>
+                      <div className="field">
+                        <label htmlFor={`templateVariableHelper-${index}`}>说明文字</label>
+                        <input
+                          id={`templateVariableHelper-${index}`}
+                          className="input"
+                          value={variable.helperText ?? ""}
+                          placeholder="可留空，显示在字段下方"
+                          onChange={(event) => updateTemplateVariable(index, { helperText: event.target.value })}
+                        />
+                      </div>
+                      {variable.type === "select" ? (
+                        <div className="field">
+                          <label htmlFor={`templateVariableOptions-${index}`}>下拉选项</label>
+                          <textarea
+                            id={`templateVariableOptions-${index}`}
+                            className="textarea compact-textarea"
+                            value={formatVariableOptions(variable.options)}
+                            placeholder={"每行一个，例如：\n白底=白底\n家居台面=家居台面"}
+                            onChange={(event) =>
+                              updateTemplateVariable(index, { options: parseVariableOptions(event.target.value) })
+                            }
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state compact">
+                  <div>
+                    <strong>暂无模板变量</strong>
+                    <span>在默认 prompt 里写入 {`{产品名称}`} 后，可点击“识别占位符”自动生成字段。</span>
+                  </div>
+                </div>
+              )}
+            </section>
             <div className="field">
               <label htmlFor="templateNegative">默认负面词</label>
               <textarea
